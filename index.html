@@ -215,6 +215,18 @@ tr:hover td { background:#fafaf8; }
       <span class="step-num">3</span><strong>Enable Firestore</strong>
       <p>Build → Firestore Database → Create database → <strong>Test mode</strong> → Location: <code>asia-south1</code> → Enable</p>
     </div>
+    <div class="step" style="background:#fff8e6;border:1px solid #ffd980">
+      <span class="step-num" style="background:#e67e00">⚠</span><strong>Secure your data (important!)</strong>
+      <p>Test mode allows anyone with your config to read/write your data. After setup, go to <strong>Firestore → Rules</strong> and replace the rules with:<br>
+      <code style="display:block;margin-top:6px;white-space:pre-wrap;font-size:11px">rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /{doc=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}</code></p>
+    </div>
     <div class="step">
       <span class="step-num">4</span><strong>Enable Authentication</strong>
       <p>Build → Authentication → Get started → Email/Password → Enable → Add your email & password under Users tab</p>
@@ -316,7 +328,8 @@ function bnActive(page) {
   if(el) el.classList.add('active');
 }
 const PIPE_TYPES = ['300mm NP2','450mm NP2','450mm NP3','600mm NP2','600mm NP3','900mm NP2','900mm NP3','1200mm NP2','1200mm Cistern'];
-const STAFF = ['Driver 1','Driver 2','Helper'];
+const DEFAULT_STAFF = ['Driver 1','Driver 2','Helper'];
+let STAFF = JSON.parse(localStorage.getItem('hpf_staff') || 'null') || [...DEFAULT_STAFF];
 const PAGES = [
   { id:'dashboard',  label:'Dashboard',  icon:'ti-layout-dashboard' },
   { id:'orders',     label:'Orders',     icon:'ti-clipboard-list' },
@@ -331,10 +344,10 @@ let cache = { orders:[], production:[], attendance:[], advances:[], dispatch_ass
 let listeners = [];
 
 // ── UTILS ─────────────────────────────────────────────────────────────────────
-function uid()      { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function uid()      { return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID().replace(/-/g,'') : Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
 function fmt(n)     { return Number(n||0).toLocaleString('en-IN'); }
 function today()    { return new Date().toISOString().slice(0,10); }
-function fmtDate(d) { if(!d) return '—'; const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
+function fmtDate(d) { if(!d) return '—'; const parts=d.split('-'); if(parts.length!==3||parts[0].length!==4) return d; return `${parts[2]}/${parts[1]}/${parts[0]}`; }
 function modal(html){ document.getElementById('modal-container').innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">${html}</div>`; }
 function closeModal(){ document.getElementById('modal-container').innerHTML=''; }
 function openSidebar()  { document.getElementById('sidebar').classList.add('open'); document.getElementById('overlay-bg').classList.add('show'); }
@@ -391,6 +404,12 @@ function launchApp(config) {
   try {
     if (!firebase.apps.length) firebase.initializeApp(config);
     firestoreDb = firebase.firestore();
+    // Enable offline persistence for reliable offline writes
+    firestoreDb.enablePersistence({synchronizeTabs: true}).catch(err => {
+      if(err.code !== 'failed-precondition' && err.code !== 'unimplemented') {
+        console.warn('Offline persistence unavailable:', err.code);
+      }
+    });
     firebase.auth().onAuthStateChanged(user => {
       if (user) {
         document.getElementById('loading-screen').style.display = 'flex';
@@ -425,7 +444,11 @@ function resetConfig() {
 
 // ── FIRESTORE HELPERS ─────────────────────────────────────────────────────────
 async function getAll(colName) {
-  const snap = await col(colName).get();
+  // For large collections, load only the most recent 500 docs to keep reads bounded.
+  // Full history is always available via Export to Excel (which fetches fresh).
+  const snap = await col(colName).limitToLast ? 
+    col(colName).orderBy('date').limitToLast(500).get().catch(() => col(colName).get()) :
+    col(colName).get();
   return snap.docs.map(d=>({id:d.id,...d.data()}));
 }
 async function getAssign() {
@@ -585,7 +608,16 @@ async function exportToExcel() {
     styleSheet(wsAdv, advData.length);
     XLSX.utils.book_append_sheet(wb, wsAdv, 'Advances');
 
-    // ── Sheet 5: Summary ──
+    // ── Sheet 5: Dispatch Assignments ──
+    const dispatchRows = Object.entries(cache.dispatch_assign||{}).map(([area, driver])=>({
+      'Route / Area': area,
+      'Assigned Driver': driver
+    }));
+    const wsDispatch = XLSX.utils.json_to_sheet(dispatchRows.length ? dispatchRows : [{'No data':'No dispatch assignments'}]);
+    styleSheet(wsDispatch, dispatchRows.length);
+    XLSX.utils.book_append_sheet(wb, wsDispatch, 'Dispatch');
+
+    // ── Sheet 6: Summary ──
     const totalBalance = orders.filter(o=>o.status!=='delivered').reduce((s,o)=>s+(Number(o.balance)||0),0);
     const totalAdvances = advances.reduce((s,a)=>s+(Number(a.amount)||0),0);
     const summaryData = [
@@ -648,6 +680,12 @@ function renderDashboard() {
       <div class="metric"><div class="metric-label">Pipes today</div><div class="metric-value">${todayTot}</div></div>
       <div class="metric"><div class="metric-label">Staff present today</div><div class="metric-value">${todayAtt.filter(a=>a.present).length}/${STAFF.length}</div></div>
     </div>
+    <div class="grid-4" style="margin-bottom:1rem">
+      <div class="metric"><div class="metric-label">Total revenue (all orders)</div><div class="metric-value" style="font-size:17px;color:#3b8a2a">₹${fmt(orders.reduce((s,o)=>s+(Number(o.total)||0),0))}</div></div>
+      <div class="metric"><div class="metric-label">Advance collected</div><div class="metric-value" style="font-size:17px">₹${fmt(orders.reduce((s,o)=>s+(Number(o.advance)||0),0))}</div></div>
+      <div class="metric"><div class="metric-label">Delivered orders</div><div class="metric-value">${orders.filter(o=>o.status==='delivered').length}</div></div>
+      <div class="metric"><div class="metric-label">Ready for dispatch</div><div class="metric-value" style="color:#1a6bc4">${orders.filter(o=>o.status==='ready').length}</div></div>
+    </div>
     <div class="grid-2">
       <div class="card">
         <div class="card-title">Upcoming deliveries <button class="btn-sm" onclick="goto('orders')">View all</button></div>
@@ -676,7 +714,14 @@ function renderDashboard() {
 
 
 async function togglePaid(id, checked) {
-  await col('orders').doc(id).update({paid: checked, balance: checked ? 0 : undefined});
+  const o = cache.orders.find(x=>x.id===id);
+  if(!checked && o) {
+    // Restore balance = total - advance when unchecking
+    const restoredBalance = Math.max(0, (Number(o.total)||0) - (Number(o.advance)||0));
+    await col('orders').doc(id).update({paid: false, balance: restoredBalance});
+  } else {
+    await col('orders').doc(id).update({paid: true, balance: 0});
+  }
 }
 function isOverdue(o) {
   if(!o.deliveryDate || o.status==='delivered') return false;
@@ -940,10 +985,12 @@ document.addEventListener('click', e => {
 });
 
 async function saveOrder(id) {
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if(btn) { btn.disabled=true; btn.textContent='Saving…'; }
   const pipes = {};
   PIPE_TYPES.forEach(t=>{ const v=Number(document.getElementById('pipe-'+t.replace(/\s+/g,'_'))?.value||0); if(v>0) pipes[t]=v; });
   const customer = document.getElementById('f-customer').value.trim();
-  if(!customer) { alert('Customer name required'); return; }
+  if(!customer) { alert('Customer name required'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
   // Address: use visible search box value (works for both typed and dropdown-selected)
   const addressVisible = document.getElementById('f-hobli-search')?.value.trim();
   const addressHidden  = document.getElementById('f-address')?.value.trim();
@@ -964,8 +1011,13 @@ async function saveOrder(id) {
     pipes, notes: document.getElementById('f-notes').value,
     status: id ? (cache.orders.find(o=>o.id===id)?.status||'pending') : 'pending'
   };
-  await col('orders').doc(id||uid()).set(data);
-  closeModal();
+  try {
+    await col('orders').doc(id||uid()).set(data);
+    closeModal();
+  } catch(e) {
+    alert('Save failed: '+e.message);
+    if(btn){btn.disabled=false;btn.textContent='Save order';}
+  }
 }
 
 // ── PRODUCTION ────────────────────────────────────────────────────────────────
@@ -1126,18 +1178,25 @@ function qpAdj(key, delta) {
   el.textContent = newVal;
 }
 async function saveQuickProd(id) {
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if(btn) { btn.disabled=true; btn.textContent='Saving…'; }
   const pipes = {};
   PIPE_TYPES.forEach(t => {
     const el = document.getElementById('qp-'+t.replace(/\s/g,'_'));
     const v = parseInt(el?.textContent||'0');
     if(v > 0) pipes[t] = v;
   });
-  await col('production').doc(id||uid()).set({
-    date: document.getElementById('qp-date').value,
-    pipes,
-    notes: document.getElementById('qp-notes').value
-  });
-  closeModal();
+  try {
+    await col('production').doc(id||uid()).set({
+      date: document.getElementById('qp-date').value,
+      pipes,
+      notes: document.getElementById('qp-notes').value
+    });
+    closeModal();
+  } catch(e) {
+    alert('Save failed: '+e.message);
+    if(btn){btn.disabled=false;btn.textContent='Save';}
+  }
 }
 
 function openProdModal(id) {
@@ -1169,10 +1228,17 @@ function openProdModal(id) {
   </div>`);
 }
 async function saveProd(id) {
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if(btn) { btn.disabled=true; btn.textContent='Saving…'; }
   const pipes = {};
   PIPE_TYPES.forEach(t=>{ const v=Number(document.getElementById('pp-'+t.replace(/\s+/g,'_'))?.value||0); if(v>0) pipes[t]=v; });
-  await col('production').doc(id||uid()).set({ date:document.getElementById('p-date').value, pipes, notes:document.getElementById('p-notes').value });
-  closeModal();
+  try {
+    await col('production').doc(id||uid()).set({ date:document.getElementById('p-date').value, pipes, notes:document.getElementById('p-notes').value });
+    closeModal();
+  } catch(e) {
+    alert('Save failed: '+e.message);
+    if(btn){btn.disabled=false;btn.textContent='Save';}
+  }
 }
 
 
@@ -1340,14 +1406,50 @@ async function markBatchDone(safeArea) {
   const area=decodeURIComponent(safeArea);
   if(!confirm(`Mark all orders for "${area}" as delivered?`)) return;
   const batch=firestoreDb.batch();
-  cache.orders.forEach(o=>{ if(o.status==='ready'){ const key=(o.address||'Unknown').split(/[\s,]+/).slice(0,2).join(' '); if(key===area) batch.update(col('orders').doc(o.id),{status:'delivered'}); }});
+  cache.orders.forEach(o=>{
+    if(o.status==='ready') {
+      const key = (o.route && o.route.trim()) ? o.route.trim() : (o.address||'Unknown').split(/[\s,]+/).slice(0,2).join(' ');
+      if(key===area) batch.update(col('orders').doc(o.id),{status:'delivered'});
+    }
+  });
   await batch.commit();
 }
 
 // ── STAFF ─────────────────────────────────────────────────────────────────────
+function openEditStaffModal() {
+  modal(`<div class="modal">
+    <div class="modal-header">
+      <h3 style="font-size:15px;font-weight:600">Edit staff names</h3>
+      <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:#888;margin-bottom:12px">These names appear in attendance, advances, and dispatch.</p>
+      ${STAFF.map((s,i)=>`
+        <div class="form-group"><label>Staff ${i+1}</label>
+          <input type="text" id="staff-name-${i}" value="${s}" placeholder="Name">
+        </div>`).join('')}
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveStaffNames()">Save names</button>
+    </div>
+  </div>`);
+}
+function saveStaffNames() {
+  const names = STAFF.map((_,i) => document.getElementById('staff-name-'+i)?.value.trim()).filter(Boolean);
+  if(names.length !== STAFF.length) { alert('All names required'); return; }
+  STAFF = names;
+  localStorage.setItem('hpf_staff', JSON.stringify(STAFF));
+  closeModal();
+  renderStaff();
+}
+
 function renderStaff() {
   document.getElementById('topbar-action').innerHTML =
-    `<button class="btn-primary" onclick="openAttModal()"><i class="ti ti-calendar"></i> Log attendance</button>`;
+    `<div style="display:flex;gap:8px">
+      <button onclick="openEditStaffModal()"><i class="ti ti-users"></i> Edit names</button>
+      <button class="btn-primary" onclick="openAttModal()"><i class="ti ti-calendar"></i> Log attendance</button>
+    </div>`;
   const att=[...cache.attendance];
   const advances=[...cache.advances].sort((a,b)=>b.date.localeCompare(a.date));
   const summary=STAFF.map(s=>({
@@ -1362,7 +1464,7 @@ function renderStaff() {
             ${s.name.split(' ').map(w=>w[0]).join('')}
           </div>
           <div><div style="font-weight:600;font-size:14px">${s.name}</div>
-            <div style="font-size:12px;color:#888">${s.name.startsWith('Driver')?'Driver':'Helper'}</div>
+            <div style="font-size:12px;color:#888">${STAFF.indexOf(s.name) < 2 ? 'Driver' : 'Helper'}</div>
           </div>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
@@ -1378,25 +1480,28 @@ function renderStaff() {
         <div style="overflow-x:auto"><table>
           <thead><tr><th>Date</th>${STAFF.map(s=>`<th>${s}</th>`).join('')}</tr></thead>
           <tbody>
-            ${[...new Set(att.map(a=>a.date))].sort((a,b)=>b.localeCompare(a)).slice(0,20).map(date=>`<tr>
+            ${[...new Set(att.map(a=>a.date))].sort((a,b)=>b.localeCompare(a)).slice(0,30).map(date=>`<tr>
               <td style="white-space:nowrap;font-weight:500">${fmtDate(date)}</td>
               ${STAFF.map(s=>{ const r=att.find(a=>a.date===date&&a.staff===s);
                 return `<td>${r?`<span class="badge ${r.present?'badge-green':'badge-red'}">${r.present?'Present':'Absent'}</span>`:'—'}</td>`; }).join('')}
             </tr>`).join('')||`<tr><td colspan="${STAFF.length+1}"><div class="empty-state" style="padding:1.5rem">No attendance logged</div></td></tr>`}
           </tbody>
         </table></div>
+        ${[...new Set(att.map(a=>a.date))].length > 30 ? `<div style="padding:10px 1rem;font-size:12px;color:#888;border-top:1px solid #f0f0ec">Showing last 30 days. Export to Excel for full history.</div>` : ''}
       </div>
       <div class="card" style="padding:0;overflow:hidden">
         <div style="padding:1rem 1.25rem 0.75rem;font-size:14px;font-weight:600;border-bottom:1px solid #f0f0ec">Advance ledger</div>
-        <table><thead><tr><th>Date</th><th>Staff</th><th>Amount</th><th>Note</th></tr></thead>
+        <table><thead><tr><th>Date</th><th>Staff</th><th>Amount</th><th>Note</th><th></th></tr></thead>
           <tbody>
             ${advances.slice(0,20).map(a=>`<tr>
               <td style="white-space:nowrap">${fmtDate(a.date)}</td><td>${a.staff}</td>
               <td style="font-weight:600">₹${fmt(a.amount)}</td>
               <td style="color:#888;font-size:12px">${a.note||'—'}</td>
-            </tr>`).join('')||`<tr><td colspan="4"><div class="empty-state" style="padding:1.5rem">No advances recorded</div></td></tr>`}
+              <td><button class="btn-sm btn-danger" onclick="delAdvance('${a.id}')">Del</button></td>
+            </tr>`).join('')||`<tr><td colspan="5"><div class="empty-state" style="padding:1.5rem">No advances recorded</div></td></tr>`}
           </tbody>
         </table>
+        ${advances.length > 20 ? `<div style="padding:10px 1rem;font-size:12px;color:#888;border-top:1px solid #f0f0ec">Showing 20 of ${advances.length} advances. Export to Excel for full history.</div>` : ''}
       </div>
     </div>`;
 }
@@ -1428,12 +1533,19 @@ function openAttModal() {
   </div>`);
 }
 async function saveAttendance() {
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if(btn) { btn.disabled=true; btn.textContent='Saving…'; }
   const date=document.getElementById('att-date').value;
   const batch=firestoreDb.batch();
   cache.attendance.filter(a=>a.date===date).forEach(a=>batch.delete(col('attendance').doc(a.id)));
   STAFF.forEach(s=>{ const val=document.querySelector(`input[name="att-${s.replace(/ /g,'_')}"]:checked`)?.value;
     batch.set(col('attendance').doc(uid()),{date,staff:s,present:val==='1'}); });
-  await batch.commit(); closeModal();
+  try {
+    await batch.commit(); closeModal();
+  } catch(e) {
+    alert('Save failed: '+e.message);
+    if(btn){btn.disabled=false;btn.textContent='Save attendance';}
+  }
 }
 function openAdvModal(staffName) {
   modal(`<div class="modal">
@@ -1453,10 +1565,22 @@ function openAdvModal(staffName) {
   </div>`);
 }
 async function saveAdvance(staff) {
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if(btn) { btn.disabled=true; btn.textContent='Saving…'; }
   const amount=Number(document.getElementById('adv-amount').value||0);
-  if(!amount) { alert('Enter an amount'); return; }
-  await col('advances').doc(uid()).set({ date:document.getElementById('adv-date').value, staff, amount, note:document.getElementById('adv-note').value });
-  closeModal();
+  if(!amount) { alert('Enter an amount'); if(btn){btn.disabled=false;btn.textContent='Save';} return; }
+  try {
+    await col('advances').doc(uid()).set({ date:document.getElementById('adv-date').value, staff, amount, note:document.getElementById('adv-note').value });
+    closeModal();
+  } catch(e) {
+    alert('Save failed: '+e.message);
+    if(btn){btn.disabled=false;btn.textContent='Save';}
+  }
+}
+
+async function delAdvance(id) {
+  if(!confirm('Delete this advance record?')) return;
+  await col('advances').doc(id).delete();
 }
 
 // ── BOOT ──────────────────────────────────────────────────────────────────────
