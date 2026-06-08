@@ -962,6 +962,29 @@ async function saveProd(id) {
   closeModal();
 }
 
+
+function buildMapsUrl(addresses) {
+  // Google Maps URL with Tiptur as origin, all stops as waypoints, optimise route
+  const origin = 'Tiptur,Karnataka,India';
+  const destination = 'Tiptur,Karnataka,India';
+  if(!addresses.length) return '';
+  if(addresses.length === 1) {
+    return 'https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(origin) + '&destination=' + encodeURIComponent(addresses[0]) + '&travelmode=driving';
+  }
+  // Up to 10 waypoints — Maps will optimise the order
+  const stops = addresses.slice(0, 10);
+  const waypoints = stops.join('|');
+  return 'https://www.google.com/maps/dir/?api=1' +
+    '&origin=' + encodeURIComponent(origin) +
+    '&destination=' + encodeURIComponent(destination) +
+    '&waypoints=optimize:true|' + encodeURIComponent(waypoints) +
+    '&travelmode=driving';
+}
+function buildGroupMapsUrl(addresses) {
+  // For a single route group — origin Tiptur, stops, back to Tiptur
+  return buildMapsUrl(addresses);
+}
+
 // ── DISPATCH ──────────────────────────────────────────────────────────────────
 function renderDispatch() {
   const orders = cache.orders.filter(o=>o.status==='ready');
@@ -975,8 +998,19 @@ function renderDispatch() {
   orders.forEach(o=>{ const key=(o.address||'Unknown').split(/[\s,]+/).slice(0,2).join(' '); if(!groups[key]) groups[key]=[]; groups[key].push(o); });
   const drivers=['Driver 1','Driver 2'];
   const saved=cache.dispatch_assign||{};
+  // Build Maps URL with all stops
+  const allAddresses = orders.map(o=>o.address).filter(Boolean);
+  const mapsUrl = buildMapsUrl(allAddresses);
+
   content.innerHTML=`
-    <div class="alert alert-info"><i class="ti ti-info-circle"></i> Orders grouped by area. Combine same-route orders into one trip.</div>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
+      <div class="alert alert-info" style="margin:0;flex:1"><i class="ti ti-info-circle"></i> Orders grouped by area. Assign drivers below.</div>
+      ${allAddresses.length ? `<a href="${mapsUrl}" target="_blank" style="text-decoration:none">
+        <button class="btn-primary" style="white-space:nowrap;display:flex;align-items:center;gap:6px;padding:10px 16px">
+          <i class="ti ti-map-2"></i> Plan Full Route in Maps
+        </button>
+      </a>` : ''}
+    </div>
     ${Object.entries(groups).map(([area,aOrders])=>{
       const totalPipes=aOrders.reduce((s,o)=>s+Object.values(o.pipes||{}).reduce((ss,v)=>ss+Number(v),0),0);
       const totalBal=aOrders.reduce((s,o)=>s+(Number(o.balance)||0),0);
@@ -1009,10 +1043,17 @@ function renderDispatch() {
             <td style="font-size:12px;color:#c07000;max-width:160px">${o.notes?`<i class="ti ti-note" style="font-size:12px"></i> ${o.notes}`:'—'}</td>
           </tr>`).join('')}</tbody>
         </table></div>
-        ${assigned?`<div style="margin-top:10px;font-size:12px;color:#555;display:flex;align-items:center;gap:8px">
-          <i class="ti ti-check" style="color:#3b8a2a"></i> Assigned to <strong>${assigned}</strong>
-          <button class="btn-sm btn-success" style="margin-left:auto" onclick="markBatchDone('${safeArea}')">Mark all delivered</button>
-        </div>`:''}
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          ${assigned?`<span style="font-size:12px;color:#555;display:flex;align-items:center;gap:4px">
+            <i class="ti ti-check" style="color:#3b8a2a"></i> <strong>${assigned}</strong>
+          </span>`:''}
+          <a href="${buildGroupMapsUrl(aOrders.map(o=>o.address).filter(Boolean))}" target="_blank" style="text-decoration:none;margin-left:${assigned?'auto':''}">
+            <button class="btn-sm" style="display:flex;align-items:center;gap:4px;color:#1a6bc4;border-color:#1a6bc4">
+              <i class="ti ti-map-pin"></i> Navigate this trip
+            </button>
+          </a>
+          ${assigned?`<button class="btn-sm btn-success" onclick="markBatchDone('${safeArea}')">Mark all delivered</button>`:''}
+        </div>
       </div>`;
     }).join('')}`;
 }
