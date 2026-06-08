@@ -1093,26 +1093,72 @@ async function saveProd(id) {
 }
 
 
-function buildMapsUrl(addresses) {
-  // Google Maps URL with Tiptur as origin, all stops as waypoints, optimise route
-  const origin = 'Tiptur,Karnataka,India';
-  const destination = 'Tiptur,Karnataka,India';
-  if(!addresses.length) return '';
-  if(addresses.length === 1) {
-    return 'https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(origin) + '&destination=' + encodeURIComponent(addresses[0]) + '&travelmode=driving';
+function buildMapsUrl(addresses, callback) {
+  if(!addresses.length) return;
+  if(navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        const origin = lat + ',' + lng;
+        const destination = lat + ',' + lng;
+        const stops = addresses.slice(0, 10);
+        let url;
+        if(stops.length === 1) {
+          url = 'https://www.google.com/maps/dir/?api=1' +
+            '&origin=' + encodeURIComponent(origin) +
+            '&destination=' + encodeURIComponent(destination) +
+            '&waypoints=' + encodeURIComponent(stops[0]) +
+            '&travelmode=driving';
+        } else {
+          url = 'https://www.google.com/maps/dir/?api=1' +
+            '&origin=' + encodeURIComponent(origin) +
+            '&destination=' + encodeURIComponent(destination) +
+            '&waypoints=optimize:true|' + stops.map(a=>encodeURIComponent(a)).join('%7C') +
+            '&travelmode=driving';
+        }
+        callback(url);
+      },
+      err => {
+        // Fallback to Tiptur coordinates if GPS denied
+        const origin = '13.7649,76.4797';
+        const destination = '13.7649,76.4797';
+        const stops = addresses.slice(0, 10);
+        let url;
+        if(stops.length === 1) {
+          url = 'https://www.google.com/maps/dir/?api=1' +
+            '&origin=' + encodeURIComponent(origin) +
+            '&destination=' + encodeURIComponent(destination) +
+            '&waypoints=' + encodeURIComponent(stops[0]) +
+            '&travelmode=driving';
+        } else {
+          url = 'https://www.google.com/maps/dir/?api=1' +
+            '&origin=' + encodeURIComponent(origin) +
+            '&destination=' + encodeURIComponent(destination) +
+            '&waypoints=optimize:true|' + stops.map(a=>encodeURIComponent(a)).join('%7C') +
+            '&travelmode=driving';
+        }
+        callback(url);
+      },
+      { timeout: 8000 }
+    );
+  } else {
+    alert('Location not supported on this device. Using Tiptur as start point.');
+    const origin = '13.7649,76.4797';
+    const stops = addresses.slice(0,10);
+    const url = 'https://www.google.com/maps/dir/?api=1' +
+      '&origin=' + encodeURIComponent(origin) +
+      '&destination=' + encodeURIComponent(origin) +
+      '&waypoints=optimize:true|' + stops.map(a=>encodeURIComponent(a)).join('%7C') +
+      '&travelmode=driving';
+    callback(url);
   }
-  // Up to 10 waypoints — Maps will optimise the order
-  const stops = addresses.slice(0, 10);
-  const waypoints = stops.join('|');
-  return 'https://www.google.com/maps/dir/?api=1' +
-    '&origin=' + encodeURIComponent(origin) +
-    '&destination=' + encodeURIComponent(destination) +
-    '&waypoints=optimize:true|' + encodeURIComponent(waypoints) +
-    '&travelmode=driving';
 }
 function buildGroupMapsUrl(addresses) {
-  // For a single route group — origin Tiptur, stops, back to Tiptur
-  return buildMapsUrl(addresses);
+  return buildMapsUrl(addresses, url => window.open(url, '_blank'));
+}
+function openFullRoute(addresses) {
+  buildMapsUrl(addresses, url => window.open(url, '_blank'));
 }
 
 // ── DISPATCH ──────────────────────────────────────────────────────────────────
@@ -1133,18 +1179,15 @@ function renderDispatch() {
   });
   const drivers=['Driver 1','Driver 2'];
   const saved=cache.dispatch_assign||{};
-  // Build Maps URL with all stops
+  // Build address list for Maps
   const allAddresses = orders.map(o=>o.address).filter(Boolean);
-  const mapsUrl = buildMapsUrl(allAddresses);
 
   content.innerHTML=`
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
       <div class="alert alert-info" style="margin:0;flex:1"><i class="ti ti-info-circle"></i> Orders grouped by area. Assign drivers below.</div>
-      ${allAddresses.length ? `<a href="${mapsUrl}" target="_blank" style="text-decoration:none">
-        <button class="btn-primary" style="white-space:nowrap;display:flex;align-items:center;gap:6px;padding:10px 16px">
+      ${allAddresses.length ? `<button class="btn-primary" style="white-space:nowrap;display:flex;align-items:center;gap:6px;padding:10px 16px" onclick="openFullRoute(${JSON.stringify(allAddresses)})">
           <i class="ti ti-map-2"></i> Plan Full Route in Maps
-        </button>
-      </a>` : ''}
+        </button>` : ''}
     </div>
     ${Object.entries(groups).map(([area,aOrders])=>{
       const totalPipes=aOrders.reduce((s,o)=>s+Object.values(o.pipes||{}).reduce((ss,v)=>ss+Number(v),0),0);
@@ -1182,11 +1225,10 @@ function renderDispatch() {
           ${assigned?`<span style="font-size:12px;color:#555;display:flex;align-items:center;gap:4px">
             <i class="ti ti-check" style="color:#3b8a2a"></i> <strong>${assigned}</strong>
           </span>`:''}
-          <a href="${buildGroupMapsUrl(aOrders.map(o=>o.address).filter(Boolean))}" target="_blank" style="text-decoration:none;margin-left:${assigned?'auto':''}">
-            <button class="btn-sm" style="display:flex;align-items:center;gap:4px;color:#1a6bc4;border-color:#1a6bc4">
-              <i class="ti ti-map-pin"></i> Navigate this trip
-            </button>
-          </a>
+          <button class="btn-sm" style="display:flex;align-items:center;gap:4px;color:#1a6bc4;border-color:#1a6bc4;margin-left:${assigned?'auto':''}" 
+            onclick="buildGroupMapsUrl(${JSON.stringify(aOrders.map(o=>o.address).filter(Boolean))})">
+            <i class="ti ti-map-pin"></i> Navigate this trip
+          </button>
           ${assigned?`<button class="btn-sm btn-success" onclick="markBatchDone('${safeArea}')">Mark all delivered</button>`:''}
         </div>
       </div>`;
