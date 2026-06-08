@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#1a6bc4">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Hume Pipes — Tiptur</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/dist/tabler-icons.min.css">
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<!-- SheetJS for Excel export -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; color: #1a1a1a; background: #f5f5f0; min-height: 100vh; }
+
+/* LOGIN */
+#login-screen { display:none; align-items:center; justify-content:center; min-height:100vh; padding:1.5rem; background:#f5f5f0; }
+.login-card { background:#fff; border-radius:14px; border:1px solid #e8e8e4; padding:2rem; max-width:380px; width:100%; box-shadow:0 4px 24px rgba(0,0,0,0.08); }
+.login-card h1 { font-size:20px; font-weight:700; margin-bottom:4px; }
+.login-card .sub { font-size:13px; color:#888; margin-bottom:1.5rem; }
+#login-error { color:#c0392b; font-size:13px; margin-top:8px; display:none; }
+
+/* SETUP */
+#setup-screen { display:flex; align-items:center; justify-content:center; min-height:100vh; padding:1.5rem; background:#f5f5f0; }
+.setup-card { background:#fff; border-radius:14px; border:1px solid #e8e8e4; padding:2rem; max-width:520px; width:100%; box-shadow:0 4px 24px rgba(0,0,0,0.08); }
+.setup-card h1 { font-size:20px; font-weight:700; margin-bottom:4px; }
+.setup-card .sub { font-size:13px; color:#888; margin-bottom:1.5rem; }
+.step { background:#f8f8f5; border-radius:8px; padding:1rem; margin-bottom:1rem; }
+.step-num { display:inline-block; width:22px; height:22px; border-radius:50%; background:#1a6bc4; color:#fff; font-size:12px; font-weight:700; text-align:center; line-height:22px; margin-right:6px; }
+.step p { font-size:13px; color:#555; margin-top:6px; line-height:1.6; }
+.step a { color:#1a6bc4; }
+.step code { background:#e8e8e4; padding:1px 5px; border-radius:4px; font-size:12px; font-family:monospace; }
+.config-input { margin-top:8px; width:100%; border:1px solid #d0d0cc; border-radius:7px; padding:8px 10px; font-size:12px; font-family:monospace; resize:vertical; min-height:120px; }
+.config-input:focus { outline:none; border-color:#1a6bc4; box-shadow:0 0 0 3px rgba(26,107,196,0.12); }
+#setup-error { color:#c0392b; font-size:13px; margin-top:8px; display:none; }
+
+/* LOADING */
+#loading-screen { display:none; position:fixed; inset:0; background:#fff; align-items:center; justify-content:center; flex-direction:column; gap:12px; z-index:999; }
+.spinner { width:36px; height:36px; border:3px solid #e8e8e4; border-top-color:#1a6bc4; border-radius:50%; animation:spin 0.8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* APP */
+#app { display:none; }
+.app { display:flex; min-height:100vh; }
+.sidebar { width:210px; background:#fff; border-right:1px solid #e8e8e4; padding:1rem 0 140px; flex-shrink:0; position:fixed; top:0; left:0; height:100vh; overflow-y:auto; z-index:10; }
+.sidebar-title { padding:0 1rem 1rem; border-bottom:1px solid #e8e8e4; margin-bottom:0.5rem; }
+.sidebar-title .factory { font-size:11px; color:#aaa; text-transform:uppercase; letter-spacing:0.06em; }
+.sidebar-title .brand { font-size:17px; font-weight:700; margin-top:2px; }
+.nav-item { display:flex; align-items:center; gap:9px; padding:10px 1rem; cursor:pointer; font-size:13.5px; color:#555; border-left:2.5px solid transparent; transition:all 0.15s; user-select:none; }
+.nav-item:hover { background:#f5f5f0; color:#1a1a1a; }
+.nav-item.active { background:#EBF4FF; color:#1a6bc4; border-left-color:#1a6bc4; font-weight:600; }
+.nav-item i { font-size:17px; }
+.sidebar-footer { position:absolute; bottom:0; left:0; width:210px; padding:0.75rem 1rem; border-top:1px solid #e8e8e4; background:#fff; }
+.sync-dot { width:8px; height:8px; border-radius:50%; background:#3b8a2a; display:inline-block; margin-right:5px; }
+.sync-dot.offline { background:#e24b4a; }
+
+.main { margin-left:210px; flex:1; }
+.topbar { background:#fff; border-bottom:1px solid #e8e8e4; padding:0.85rem 1.5rem; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:9; }
+.topbar h2 { font-size:16px; font-weight:600; }
+.content { padding:1.5rem; }
+
+.card { background:#fff; border:1px solid #e8e8e4; border-radius:10px; padding:1.1rem 1.25rem; margin-bottom:1rem; }
+.card-title { font-size:14px; font-weight:600; margin-bottom:1rem; display:flex; align-items:center; justify-content:space-between; }
+.grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem; }
+.grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; margin-bottom:1rem; }
+.grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:1rem; margin-bottom:1rem; }
+.metric { background:#f8f8f5; border-radius:8px; padding:1rem; }
+.metric-label { font-size:12px; color:#888; margin-bottom:4px; }
+.metric-value { font-size:22px; font-weight:600; }
+
+button { cursor:pointer; border:1px solid #d0d0cc; background:transparent; border-radius:7px; padding:6px 14px; font-size:13px; color:#1a1a1a; font-family:inherit; transition:background 0.15s; }
+button:hover { background:#f5f5f0; }
+.btn-primary { background:#1a6bc4; color:white; border-color:#1a6bc4; }
+.btn-primary:hover { background:#155aa8; }
+.btn-danger { border-color:#e24b4a; color:#e24b4a; }
+.btn-danger:hover { background:#fff0f0; }
+.btn-sm { padding:4px 10px; font-size:12px; }
+.btn-success { background:#3b8a2a; color:white; border-color:#3b8a2a; }
+.btn-success:hover { background:#2e6e22; }
+.btn-excel { background:#1d6f42; color:white; border-color:#1d6f42; }
+.btn-excel:hover { background:#155233; }
+
+input, select, textarea { width:100%; border:1px solid #d0d0cc; border-radius:7px; padding:7px 10px; font-size:13px; background:#fff; color:#1a1a1a; font-family:inherit; }
+input:focus, select:focus, textarea:focus { outline:none; border-color:#1a6bc4; box-shadow:0 0 0 3px rgba(26,107,196,0.12); }
+label { font-size:12px; color:#666; display:block; margin-bottom:4px; }
+.form-group { margin-bottom:12px; }
+.form-row { display:grid; gap:12px; }
+.form-row.cols-2 { grid-template-columns:1fr 1fr; }
+.form-row.cols-3 { grid-template-columns:1fr 1fr 1fr; }
+
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { text-align:left; padding:8px 10px; font-size:11px; font-weight:600; color:#888; border-bottom:1px solid #e8e8e4; text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap; }
+td { padding:9px 10px; border-bottom:1px solid #f0f0ec; vertical-align:top; }
+tr:last-child td { border-bottom:none; }
+tr:hover td { background:#fafaf8; }
+
+.badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; }
+.badge-blue { background:#e6f0fc; color:#1a5ca8; }
+.badge-green { background:#eaf3de; color:#2e6e1a; }
+.badge-amber { background:#fef3e0; color:#8a5a00; }
+.badge-red { background:#fdecea; color:#a02020; }
+.badge-gray { background:#f0eeea; color:#555; }
+.badge-teal { background:#e0f5ee; color:#0a5e48; }
+
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.38); display:flex; align-items:center; justify-content:center; z-index:100; }
+.modal { background:#fff; border-radius:12px; border:1px solid #e8e8e4; width:600px; max-width:95vw; max-height:90vh; overflow-y:auto; box-shadow:0 8px 40px rgba(0,0,0,0.18); }
+.modal-header { padding:1rem 1.25rem; border-bottom:1px solid #e8e8e4; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; background:#fff; z-index:1; }
+.modal-body { padding:1.25rem; }
+.modal-footer { padding:1rem 1.25rem; border-top:1px solid #e8e8e4; display:flex; justify-content:flex-end; gap:8px; }
+
+.pipe-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.pipe-input-group { background:#f8f8f5; border-radius:8px; padding:8px; }
+.pipe-input-group label { font-size:11px; margin-bottom:4px; }
+.pipe-input-group input { font-size:14px; text-align:center; }
+
+.tab-bar { display:flex; gap:4px; margin-bottom:1rem; border-bottom:1px solid #e8e8e4; }
+.tab { padding:8px 16px; font-size:13px; cursor:pointer; border:none; background:none; color:#777; border-bottom:2px solid transparent; margin-bottom:-1px; border-radius:0; font-family:inherit; }
+.tab.active { color:#1a6bc4; border-bottom-color:#1a6bc4; font-weight:600; }
+.tab:hover { background:#f5f5f0; }
+
+.dispatch-card { border:1px solid #e8e8e4; border-radius:10px; padding:1rem; margin-bottom:0.75rem; background:#fff; }
+.dispatch-route { font-size:13px; font-weight:600; margin-bottom:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
+.alert { padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:12px; display:flex; align-items:flex-start; gap:8px; }
+.alert-info { background:#e6f0fc; color:#1a5ca8; border:1px solid #b5d0f0; }
+.empty-state { text-align:center; padding:3rem 1rem; color:#aaa; }
+.empty-state i { font-size:40px; display:block; margin-bottom:0.75rem; opacity:0.5; }
+
+@media (max-width:700px) {
+  .sidebar { transform:translateX(-100%); transition:transform 0.25s; }
+  .sidebar.open { transform:translateX(0); }
+  .main { margin-left:0; }
+  .grid-2,.grid-3,.grid-4 { grid-template-columns:1fr; }
+  .pipe-grid { grid-template-columns:repeat(2,1fr); }
+  .mobile-menu-btn { display:flex !important; }
+  .form-row.cols-2,.form-row.cols-3 { grid-template-columns:1fr; }
+}
+.mobile-menu-btn { display:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:8px; }
+.overlay-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:9; }
+.overlay-bg.show { display:block; }
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>🏭 Hume Pipes — Tiptur</h1>
+    <p class="sub">Sign in to access your factory dashboard.</p>
+    <div class="form-group"><label>Email</label><input type="email" id="login-email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div class="form-group"><label>Password</label><input type="password" id="login-password" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div id="login-error"></div>
+    <button class="btn-primary" style="width:100%;padding:10px;font-size:14px;margin-top:8px" onclick="doLogin()">Sign In →</button>
+    <p style="font-size:12px;color:#aaa;margin-top:10px;text-align:center">Only authorised users can access this app.</p>
+  </div>
+</div>
+
+<!-- SETUP -->
+<div id="setup-screen" style="display:none">
+  <div class="setup-card">
+    <h1>🏭 Hume Pipes — Tiptur</h1>
+    <p class="sub">One-time Firebase setup. After this, data works on MacBook + Android together.</p>
+    <div class="step">
+      <span class="step-num">1</span><strong>Create Firebase project</strong>
+      <p>Go to <a href="https://console.firebase.google.com" target="_blank">console.firebase.google.com</a> → Add project → Name <code>hume-pipes</code> → Create</p>
+    </div>
+    <div class="step">
+      <span class="step-num">2</span><strong>Add Web App & copy config</strong>
+      <p>Click <strong>&lt;/&gt;</strong> icon → Register → Copy the <code>firebaseConfig { ... }</code> object</p>
+    </div>
+    <div class="step">
+      <span class="step-num">3</span><strong>Enable Firestore</strong>
+      <p>Build → Firestore Database → Create database → <strong>Test mode</strong> → Location: <code>asia-south1</code> → Enable</p>
+    </div>
+    <div class="step">
+      <span class="step-num">4</span><strong>Enable Authentication</strong>
+      <p>Build → Authentication → Get started → Email/Password → Enable → Add your email & password under Users tab</p>
+    </div>
+    <div class="step">
+      <span class="step-num">5</span><strong>Paste config</strong>
+      <textarea class="config-input" id="firebase-config" placeholder='{&#10;  apiKey: "AIzaSy...",&#10;  authDomain: "hume-pipes.firebaseapp.com",&#10;  projectId: "hume-pipes",&#10;  storageBucket: "...",&#10;  messagingSenderId: "...",&#10;  appId: "..."&#10;}'></textarea>
+      <div id="setup-error"></div>
+    </div>
+    <button class="btn-primary" style="width:100%;padding:10px;font-size:14px;margin-top:4px" onclick="connectFirebase()">Connect & Launch →</button>
+    <p style="font-size:12px;color:#aaa;margin-top:10px;text-align:center">Config saved in browser. Only needed once per device.</p>
+  </div>
+</div>
+
+<!-- LOADING -->
+<div id="loading-screen">
+  <div class="spinner"></div>
+  <div style="font-size:14px;color:#888">Connecting…</div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="overlay-bg" id="overlay-bg" onclick="closeSidebar()"></div>
+  <div class="app">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-title">
+        <div class="factory">Tiptur Factory</div>
+        <div class="brand">Hume Pipes</div>
+      </div>
+      <nav id="nav"></nav>
+      <div class="sidebar-footer">
+        <div style="font-size:12px;color:#888;display:flex;align-items:center">
+          <span class="sync-dot" id="sync-dot"></span>
+          <span id="sync-label">Connected</span>
+        </div>
+        <div style="font-size:11px;color:#bbb;margin-top:3px" id="user-email-label"></div>
+        <button class="btn-excel" style="width:100%;margin-top:10px;font-size:12px" onclick="exportToExcel()">
+          <i class="ti ti-file-spreadsheet"></i> Export to Excel
+        </button>
+        <button style="width:100%;margin-top:6px;font-size:12px;color:#888;border-color:#e8e8e4" onclick="resetConfig()">⚙ Change Firebase config</button>
+        <button style="width:100%;margin-top:5px;font-size:12px;color:#c0392b;border-color:#e8e8e4" onclick="doLogout()">⇤ Sign out</button>
+      </div>
+    </aside>
+    <div class="main">
+      <div class="topbar">
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="mobile-menu-btn" onclick="openSidebar()"><i class="ti ti-menu-2" style="font-size:20px"></i></button>
+          <h2 id="page-title">Dashboard</h2>
+        </div>
+        <div id="topbar-action"></div>
+      </div>
+      <div class="content" id="content"></div>
+    </div>
+  </div>
+</div>
+
+<div id="modal-container"></div>
+
+<script>
+const PIPE_TYPES = ['300mm NP2','450mm NP2','450mm NP3','600mm NP2','600mm NP3','900mm NP2','900mm NP3','1200mm NP2','1200mm Cistern'];
+const STAFF = ['Driver 1','Driver 2','Helper'];
+const PAGES = [
+  { id:'dashboard',  label:'Dashboard',  icon:'ti-layout-dashboard' },
+  { id:'orders',     label:'Orders',     icon:'ti-clipboard-list' },
+  { id:'production', label:'Production', icon:'ti-tools' },
+  { id:'dispatch',   label:'Dispatch',   icon:'ti-truck' },
+  { id:'staff',      label:'Staff',      icon:'ti-users' },
+];
+
+let firestoreDb = null;
+let currentPage = 'dashboard';
+let cache = { orders:[], production:[], attendance:[], advances:[], dispatch_assign:{} };
+let listeners = [];
+
+// ── UTILS ─────────────────────────────────────────────────────────────────────
+function uid()      { return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+function fmt(n)     { return Number(n||0).toLocaleString('en-IN'); }
+function today()    { return new Date().toISOString().slice(0,10); }
+function fmtDate(d) { if(!d) return '—'; const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
+function modal(html){ document.getElementById('modal-container').innerHTML=`<div class="modal-overlay" onclick="if(event.target===this)closeModal()">${html}</div>`; }
+function closeModal(){ document.getElementById('modal-container').innerHTML=''; }
+function openSidebar()  { document.getElementById('sidebar').classList.add('open'); document.getElementById('overlay-bg').classList.add('show'); }
+function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('overlay-bg').classList.remove('show'); }
+function col(name)  { return firestoreDb.collection(name); }
+
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+function showLoginScreen() {
+  document.getElementById('login-screen').style.display = 'flex';
+  document.getElementById('loading-screen').style.display = 'none';
+  document.getElementById('setup-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'none';
+}
+
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errEl = document.getElementById('login-error');
+  errEl.style.display = 'none';
+  if (!email || !password) { errEl.textContent='Enter email and password.'; errEl.style.display='block'; return; }
+  try {
+    await firebase.auth().signInWithEmailAndPassword(email, password);
+  } catch(e) {
+    errEl.textContent = 'Login failed: ' + (e.code==='auth/invalid-credential'?'Wrong email or password.':e.message);
+    errEl.style.display = 'block';
+  }
+}
+
+async function doLogout() {
+  if (!confirm('Sign out?')) return;
+  listeners.forEach(u=>u());
+  listeners = [];
+  await firebase.auth().signOut();
+  showLoginScreen();
+}
+
+// ── FIREBASE SETUP ────────────────────────────────────────────────────────────
+function connectFirebase() {
+  let raw = document.getElementById('firebase-config').value.trim();
+  raw = raw.replace(/^.*?=\s*/,'').replace(/;?\s*$/,'');
+  raw = raw.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g,'$1"$2"$3');
+  raw = raw.replace(/,\s*([}\]])/g,'$1');
+  let config;
+  try { config = JSON.parse(raw); } catch(e) { showError('Cannot parse config: '+e.message); return; }
+  if (!config.projectId||!config.apiKey) { showError('Missing projectId or apiKey.'); return; }
+  localStorage.setItem('hpf_firebase_config', JSON.stringify(config));
+  launchApp(config);
+}
+
+function launchApp(config) {
+  document.getElementById('setup-screen').style.display = 'none';
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('loading-screen').style.display = 'flex';
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(config);
+    firestoreDb = firebase.firestore();
+    firebase.auth().onAuthStateChanged(user => {
+      if (user) {
+        document.getElementById('loading-screen').style.display = 'flex';
+        firestoreDb.collection('orders').limit(1).get()
+          .then(() => initApp(user))
+          .catch(err => {
+            document.getElementById('loading-screen').style.display = 'none';
+            showLoginScreen();
+            alert('Firestore error: '+err.message);
+          });
+      } else {
+        showLoginScreen();
+      }
+    });
+  } catch(e) {
+    document.getElementById('loading-screen').style.display = 'none';
+    document.getElementById('setup-screen').style.display = 'flex';
+    showError('Firebase error: '+e.message);
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('setup-error');
+  el.textContent = msg; el.style.display = 'block';
+}
+
+function resetConfig() {
+  if (!confirm('Disconnect Firebase?')) return;
+  localStorage.removeItem('hpf_firebase_config');
+  location.reload();
+}
+
+// ── FIRESTORE HELPERS ─────────────────────────────────────────────────────────
+async function getAll(colName) {
+  const snap = await col(colName).get();
+  return snap.docs.map(d=>({id:d.id,...d.data()}));
+}
+async function getAssign() {
+  const doc = await firestoreDb.collection('meta').doc('dispatch_assign').get();
+  return doc.exists ? doc.data() : {};
+}
+async function setAssign(data) {
+  await firestoreDb.collection('meta').doc('dispatch_assign').set(data);
+}
+function listen(colName, callback) {
+  const unsub = col(colName).onSnapshot(snap => {
+    cache[colName] = snap.docs.map(d=>({id:d.id,...d.data()}));
+    callback();
+  });
+  listeners.push(unsub);
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+async function initApp(user) {
+  const [orders, production, attendance, advances, assign] = await Promise.all([
+    getAll('orders'), getAll('production'), getAll('attendance'), getAll('advances'), getAssign()
+  ]);
+  cache = { orders, production, attendance, advances, dispatch_assign: assign };
+
+  document.getElementById('loading-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('user-email-label').textContent = user.email;
+
+  listen('orders',     () => { if(['orders','dashboard','dispatch'].includes(currentPage)) goto(currentPage,true); });
+  listen('production', () => { if(['production','dashboard'].includes(currentPage)) goto(currentPage,true); });
+  listen('attendance', () => { if(currentPage==='staff') goto(currentPage,true); });
+  listen('advances',   () => { if(currentPage==='staff') goto(currentPage,true); });
+
+  window.addEventListener('online',  () => setSyncStatus(true));
+  window.addEventListener('offline', () => setSyncStatus(false));
+  setSyncStatus(navigator.onLine);
+  renderNav();
+  goto('dashboard');
+}
+
+function setSyncStatus(online) {
+  document.getElementById('sync-dot').className = 'sync-dot'+(online?'':' offline');
+  document.getElementById('sync-label').textContent = online?'Connected':'Offline';
+}
+
+// ── NAV ───────────────────────────────────────────────────────────────────────
+function renderNav() {
+  document.getElementById('nav').innerHTML = PAGES.map(p=>`
+    <div class="nav-item${currentPage===p.id?' active':''}" onclick="goto('${p.id}');closeSidebar()">
+      <i class="ti ${p.icon}"></i>${p.label}
+    </div>`).join('');
+}
+function goto(page, silent=false) {
+  currentPage = page;
+  if(!silent) renderNav();
+  document.getElementById('page-title').textContent = PAGES.find(p=>p.id===page).label;
+  document.getElementById('topbar-action').innerHTML = '';
+  ({dashboard:renderDashboard,orders:renderOrders,production:renderProduction,dispatch:renderDispatch,staff:renderStaff})[page]();
+}
+
+// ── EXPORT TO EXCEL ───────────────────────────────────────────────────────────
+async function exportToExcel() {
+  const btn = event.target.closest('button');
+  const orig = btn.innerHTML;
+  btn.innerHTML = '<i class="ti ti-loader"></i> Exporting…';
+  btn.disabled = true;
+
+  try {
+    // Fetch fresh data from Firebase
+    const [orders, production, attendance, advances] = await Promise.all([
+      getAll('orders'), getAll('production'), getAll('attendance'), getAll('advances')
+    ]);
+
+    const wb = XLSX.utils.book_new();
+
+    // ── Sheet 1: Orders ──
+    const ordersData = orders.sort((a,b)=>(a.orderDate||'').localeCompare(b.orderDate||'')).map(o=>({
+      'Order Date':     fmtDate(o.orderDate),
+      'Customer Name':  o.customer||'',
+      'Phone':          o.phone||'',
+      'Address':        o.address||'',
+      'Distance (km)':  o.km||'',
+      'Advance (₹)':    Number(o.advance)||0,
+      'Balance (₹)':    Number(o.balance)||0,
+      'Delivery Date':  fmtDate(o.deliveryDate),
+      'Status':         o.status||'',
+      '300mm NP2':      (o.pipes&&o.pipes['300mm NP2'])||0,
+      '450mm NP2':      (o.pipes&&o.pipes['450mm NP2'])||0,
+      '450mm NP3':      (o.pipes&&o.pipes['450mm NP3'])||0,
+      '600mm NP2':      (o.pipes&&o.pipes['600mm NP2'])||0,
+      '600mm NP3':      (o.pipes&&o.pipes['600mm NP3'])||0,
+      '900mm NP2':      (o.pipes&&o.pipes['900mm NP2'])||0,
+      '900mm NP3':      (o.pipes&&o.pipes['900mm NP3'])||0,
+      '1200mm NP2':     (o.pipes&&o.pipes['1200mm NP2'])||0,
+      '1200mm Cistern': (o.pipes&&o.pipes['1200mm Cistern'])||0,
+      'Notes':          o.notes||''
+    }));
+    const wsOrders = XLSX.utils.json_to_sheet(ordersData.length ? ordersData : [{'No data':'No orders yet'}]);
+    styleSheet(wsOrders, ordersData.length);
+    XLSX.utils.book_append_sheet(wb, wsOrders, 'Orders');
+
+    // ── Sheet 2: Production ──
+    const prodData = production.sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(p=>({
+      'Date':           fmtDate(p.date),
+      '300mm NP2':      (p.pipes&&p.pipes['300mm NP2'])||0,
+      '450mm NP2':      (p.pipes&&p.pipes['450mm NP2'])||0,
+      '450mm NP3':      (p.pipes&&p.pipes['450mm NP3'])||0,
+      '600mm NP2':      (p.pipes&&p.pipes['600mm NP2'])||0,
+      '600mm NP3':      (p.pipes&&p.pipes['600mm NP3'])||0,
+      '900mm NP2':      (p.pipes&&p.pipes['900mm NP2'])||0,
+      '900mm NP3':      (p.pipes&&p.pipes['900mm NP3'])||0,
+      '1200mm NP2':     (p.pipes&&p.pipes['1200mm NP2'])||0,
+      '1200mm Cistern': (p.pipes&&p.pipes['1200mm Cistern'])||0,
+      'Total':          PIPE_TYPES.reduce((s,t)=>s+((p.pipes&&p.pipes[t])||0),0),
+      'Notes':          p.notes||''
+    }));
+    // Add totals row
+    if (prodData.length) {
+      const totRow = {'Date':'TOTAL'};
+      PIPE_TYPES.forEach(t=>{ totRow[t]=production.reduce((s,p)=>s+((p.pipes&&p.pipes[t])||0),0); });
+      totRow['Total'] = production.reduce((s,p)=>s+PIPE_TYPES.reduce((ss,t)=>ss+((p.pipes&&p.pipes[t])||0),0),0);
+      totRow['Notes']='';
+      prodData.push(totRow);
+    }
+    const wsProd = XLSX.utils.json_to_sheet(prodData.length ? prodData : [{'No data':'No production yet'}]);
+    styleSheet(wsProd, prodData.length);
+    XLSX.utils.book_append_sheet(wb, wsProd, 'Production');
+
+    // ── Sheet 3: Attendance ──
+    const attDates = [...new Set(attendance.map(a=>a.date))].sort((a,b)=>a.localeCompare(b));
+    const attData = attDates.map(date=>{
+      const row = {'Date': fmtDate(date)};
+      STAFF.forEach(s=>{ const r=attendance.find(a=>a.date===date&&a.staff===s); row[s]=r?(r.present?'Present':'Absent'):'—'; });
+      return row;
+    });
+    const wsAtt = XLSX.utils.json_to_sheet(attData.length ? attData : [{'No data':'No attendance yet'}]);
+    styleSheet(wsAtt, attData.length);
+    XLSX.utils.book_append_sheet(wb, wsAtt, 'Attendance');
+
+    // ── Sheet 4: Advances ──
+    const advData = advances.sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(a=>({
+      'Date':    fmtDate(a.date),
+      'Staff':   a.staff||'',
+      'Amount (₹)': Number(a.amount)||0,
+      'Note':    a.note||''
+    }));
+    // Summary per staff
+    if (advData.length) {
+      advData.push({'Date':'','Staff':'','Amount (₹)':'','Note':''});
+      STAFF.forEach(s=>{
+        const total = advances.filter(a=>a.staff===s).reduce((sum,a)=>sum+(Number(a.amount)||0),0);
+        advData.push({'Date':'TOTAL','Staff':s,'Amount (₹)':total,'Note':''});
+      });
+    }
+    const wsAdv = XLSX.utils.json_to_sheet(advData.length ? advData : [{'No data':'No advances yet'}]);
+    styleSheet(wsAdv, advData.length);
+    XLSX.utils.book_append_sheet(wb, wsAdv, 'Advances');
+
+    // ── Sheet 5: Summary ──
+    const totalBalance = orders.filter(o=>o.status!=='delivered').reduce((s,o)=>s+(Number(o.balance)||0),0);
+    const totalAdvances = advances.reduce((s,a)=>s+(Number(a.amount)||0),0);
+    const summaryData = [
+      {'Metric':'Export date','Value': new Date().toLocaleDateString('en-IN')},
+      {'Metric':'Total orders','Value': orders.length},
+      {'Metric':'Active orders','Value': orders.filter(o=>o.status!=='delivered').length},
+      {'Metric':'Delivered orders','Value': orders.filter(o=>o.status==='delivered').length},
+      {'Metric':'Total balance pending (₹)','Value': totalBalance},
+      {'Metric':'Total staff advances (₹)','Value': totalAdvances},
+      {'Metric':'Production days logged','Value': production.length},
+      {'Metric':'Total pipes produced','Value': production.reduce((s,p)=>s+PIPE_TYPES.reduce((ss,t)=>ss+((p.pipes&&p.pipes[t])||0),0),0)},
+      {'Metric':'','Value':''},
+      {'Metric':'-- Pipe-wise totals --','Value':''},
+      ...PIPE_TYPES.map(t=>({'Metric':t,'Value':production.reduce((s,p)=>s+((p.pipes&&p.pipes[t])||0),0)}))
+    ];
+    const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+
+    // Download
+    const filename = `HumePipes_Export_${today()}.xlsx`;
+    XLSX.writeFile(wb, filename);
+
+  } catch(e) {
+    alert('Export failed: '+e.message);
+  }
+  btn.innerHTML = orig;
+  btn.disabled = false;
+}
+
+function styleSheet(ws, rowCount) {
+  // Set column widths
+  const cols = [];
+  const range = XLSX.utils.decode_range(ws['!ref']||'A1');
+  for (let c = range.s.c; c <= range.e.c; c++) cols.push({ wch: 16 });
+  ws['!cols'] = cols;
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+function renderDashboard() {
+  const orders   = cache.orders;
+  const prod     = cache.production;
+  const active   = orders.filter(o=>o.status!=='delivered');
+  const totalBal = active.reduce((s,o)=>s+(Number(o.balance)||0),0);
+  const todayP   = prod.filter(p=>p.date===today());
+  const todayTot = todayP.reduce((s,p)=>s+PIPE_TYPES.reduce((ss,t)=>ss+(Number(p.pipes&&p.pipes[t])||0),0),0);
+  const todayAtt = cache.attendance.filter(a=>a.date===today());
+  const pipeSummary = {};
+  PIPE_TYPES.forEach(t=>{ pipeSummary[t]=0; });
+  prod.forEach(p=>PIPE_TYPES.forEach(t=>{ pipeSummary[t]+=(Number(p.pipes&&p.pipes[t])||0); }));
+
+  document.getElementById('content').innerHTML = `
+    <div class="grid-4">
+      <div class="metric"><div class="metric-label">Active orders</div><div class="metric-value">${active.length}</div></div>
+      <div class="metric"><div class="metric-label">Balance pending</div><div class="metric-value" style="font-size:17px">₹${fmt(totalBal)}</div></div>
+      <div class="metric"><div class="metric-label">Pipes today</div><div class="metric-value">${todayTot}</div></div>
+      <div class="metric"><div class="metric-label">Staff present today</div><div class="metric-value">${todayAtt.filter(a=>a.present).length}/${STAFF.length}</div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">Upcoming deliveries <button class="btn-sm" onclick="goto('orders')">View all</button></div>
+        ${active.length ? active.slice(0,6).map(o=>`
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f0ec">
+            <div>
+              <div style="font-weight:600;font-size:13px">${o.customer}</div>
+              <div style="font-size:12px;color:#888">${o.address||'—'}${o.km?' · <span style="color:#1a6bc4">~'+o.km+'km</span>':''}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0;margin-left:8px">
+              <div style="font-size:12px;color:#555">${fmtDate(o.deliveryDate)}</div>
+              <span class="badge ${o.balance>0?'badge-amber':'badge-green'}">${o.balance>0?'₹'+fmt(o.balance)+' due':'Paid'}</span>
+            </div>
+          </div>`).join('')
+        : '<div class="empty-state"><i class="ti ti-clipboard-list"></i>No active orders</div>'}
+      </div>
+      <div class="card">
+        <div class="card-title">Cumulative production <button class="btn-sm" onclick="goto('production')">Log today</button></div>
+        ${PIPE_TYPES.filter(t=>pipeSummary[t]>0).map(t=>`
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0ec;font-size:13px">
+            <span>${t}</span><span style="font-weight:600">${fmt(pipeSummary[t])}</span>
+          </div>`).join('')||'<div class="empty-state" style="padding:1.5rem"><i class="ti ti-tools"></i>No production logged</div>'}
+      </div>
+    </div>`;
+}
+
+// ── ORDERS ────────────────────────────────────────────────────────────────────
+function renderOrders() {
+  document.getElementById('topbar-action').innerHTML =
+    `<button class="btn-primary" onclick="openOrderModal()"><i class="ti ti-plus"></i> New order</button>`;
+  const orders = cache.orders;
+  const counts = { pending:orders.filter(o=>o.status==='pending').length, ready:orders.filter(o=>o.status==='ready').length, delivered:orders.filter(o=>o.status==='delivered').length };
+  document.getElementById('content').innerHTML = `
+    <div class="tab-bar">
+      <button class="tab active" id="tab-pending"   onclick="switchTab('pending')">Pending (${counts.pending})</button>
+      <button class="tab"        id="tab-ready"     onclick="switchTab('ready')">Ready (${counts.ready})</button>
+      <button class="tab"        id="tab-delivered" onclick="switchTab('delivered')">Delivered (${counts.delivered})</button>
+    </div>
+    <div id="order-list"></div>`;
+  renderOrderList('pending');
+}
+function switchTab(tab) {
+  document.querySelectorAll('.tab-bar .tab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  renderOrderList(tab);
+}
+function renderOrderList(status) {
+  const orders = cache.orders.filter(o=>o.status===status);
+  const el = document.getElementById('order-list');
+  if(!orders.length) { el.innerHTML=`<div class="card empty-state"><i class="ti ti-clipboard-list"></i>No ${status} orders</div>`; return; }
+  el.innerHTML = `<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto">
+    <table><thead><tr>
+      <th>Date</th><th>Customer</th><th>Phone</th><th>Pipes</th>
+      <th>Advance</th><th>Balance</th><th>Del. date</th><th>Address</th><th>KM</th><th>Notes</th><th>Actions</th>
+    </tr></thead><tbody>
+      ${orders.map(o=>`<tr>
+        <td style="white-space:nowrap">${fmtDate(o.orderDate)}</td>
+        <td style="font-weight:600;white-space:nowrap">${o.customer}</td>
+        <td><a href="tel:${o.phone}" style="color:#1a6bc4;text-decoration:none">${o.phone}</a></td>
+        <td style="font-size:12px;min-width:150px">${Object.entries(o.pipes||{}).filter(([,v])=>v>0).map(([k,v])=>`<span class="badge badge-gray">${v}× ${k}</span>`).join(' ')}</td>
+        <td>₹${fmt(o.advance)}</td>
+        <td><span class="badge ${Number(o.balance)>0?'badge-amber':'badge-green'}">₹${fmt(o.balance)}</span></td>
+        <td style="white-space:nowrap">${fmtDate(o.deliveryDate)}</td>
+        <td style="min-width:110px;font-size:12px">${o.address||'—'}</td>
+        <td>${o.km?`<span class="badge badge-blue">~${o.km}km</span>`:'—'}</td>
+        <td style="min-width:130px;font-size:12px;color:#555">${o.notes||'—'}</td>
+        <td style="white-space:nowrap">
+          ${o.status==='pending'?`<button class="btn-sm btn-success" onclick="setStatus('${o.id}','ready')">Ready</button> `:''}
+          ${o.status==='ready'?`<button class="btn-sm btn-primary" onclick="setStatus('${o.id}','delivered')">Delivered</button> `:''}
+          <button class="btn-sm" onclick="openOrderModal('${o.id}')">Edit</button>
+          <button class="btn-sm btn-danger" onclick="delOrder('${o.id}')">Del</button>
+        </td>
+      </tr>`).join('')}
+    </tbody></table></div></div>`;
+}
+async function setStatus(id, status) { await col('orders').doc(id).update({status}); }
+async function delOrder(id) { if(!confirm('Delete this order?')) return; await col('orders').doc(id).delete(); }
+
+function openOrderModal(id) {
+  const o = id ? cache.orders.find(x=>x.id===id) : null;
+  const pipes = o?.pipes||{};
+  modal(`<div class="modal">
+    <div class="modal-header">
+      <h3 style="font-size:15px;font-weight:600">${o?'Edit order':'New order'}</h3>
+      <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Order date</label><input type="date" id="f-orderDate" value="${o?.orderDate||today()}"></div>
+        <div class="form-group"><label>Customer name *</label><input type="text" id="f-customer" value="${o?.customer||''}" placeholder="Full name"></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Phone</label><input type="tel" id="f-phone" value="${o?.phone||''}" placeholder="10-digit"></div>
+        <div class="form-group"><label>Delivery date</label><input type="date" id="f-deliveryDate" value="${o?.deliveryDate||''}"></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Delivery address</label><input type="text" id="f-address" value="${o?.address||''}" placeholder="Village, Taluk, District"></div>
+        <div class="form-group"><label>Distance from Tiptur (km)</label><input type="number" id="f-km" value="${o?.km||''}" min="0" placeholder="e.g. 45"></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Advance received (₹)</label><input type="number" id="f-advance" value="${o?.advance||0}" min="0"></div>
+        <div class="form-group"><label>Balance remaining (₹)</label><input type="number" id="f-balance" value="${o?.balance||0}" min="0"></div>
+      </div>
+      <div class="form-group">
+        <label style="font-size:13px;font-weight:600;margin-bottom:8px">Pipes ordered</label>
+        <div class="pipe-grid">
+          ${PIPE_TYPES.map(t=>`<div class="pipe-input-group">
+            <label>${t}</label>
+            <input type="number" id="pipe-${t.replace(/\s+/g,'_')}" value="${pipes[t]||0}" min="0">
+          </div>`).join('')}
+        </div>
+      </div>
+      <div class="form-group"><label>Notes</label>
+        <textarea id="f-notes" rows="2" style="resize:vertical">${o?.notes||''}</textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveOrder('${id||''}')">Save order</button>
+    </div>
+  </div>`);
+}
+async function saveOrder(id) {
+  const pipes = {};
+  PIPE_TYPES.forEach(t=>{ const v=Number(document.getElementById('pipe-'+t.replace(/\s+/g,'_'))?.value||0); if(v>0) pipes[t]=v; });
+  const customer = document.getElementById('f-customer').value.trim();
+  if(!customer) { alert('Customer name required'); return; }
+  const data = {
+    customer, phone: document.getElementById('f-phone').value.trim(),
+    orderDate: document.getElementById('f-orderDate').value,
+    deliveryDate: document.getElementById('f-deliveryDate').value,
+    address: document.getElementById('f-address').value.trim(),
+    km: Number(document.getElementById('f-km').value)||0,
+    advance: Number(document.getElementById('f-advance').value||0),
+    balance: Number(document.getElementById('f-balance').value||0),
+    pipes, notes: document.getElementById('f-notes').value,
+    status: id ? (cache.orders.find(o=>o.id===id)?.status||'pending') : 'pending'
+  };
+  await col('orders').doc(id||uid()).set(data);
+  closeModal();
+}
+
+// ── PRODUCTION ────────────────────────────────────────────────────────────────
+function renderProduction() {
+  document.getElementById('topbar-action').innerHTML =
+    `<button class="btn-primary" onclick="openProdModal()"><i class="ti ti-plus"></i> Log production</button>`;
+  const prod = [...cache.production].sort((a,b)=>b.date.localeCompare(a.date));
+  const totals = {};
+  PIPE_TYPES.forEach(t=>{ totals[t]=0; });
+  prod.forEach(p=>PIPE_TYPES.forEach(t=>{ totals[t]+=(Number(p.pipes&&p.pipes[t])||0); }));
+  document.getElementById('content').innerHTML = `
+    <div class="card">
+      <div class="card-title">Cumulative totals — all time</div>
+      <div class="pipe-grid">
+        ${PIPE_TYPES.map(t=>`<div class="pipe-input-group">
+          <div style="font-size:11px;color:#888;margin-bottom:4px">${t}</div>
+          <div style="font-size:20px;font-weight:700;text-align:center">${fmt(totals[t])}</div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto">
+      <table><thead><tr>
+        <th>Date</th>${PIPE_TYPES.map(t=>`<th style="white-space:nowrap">${t}</th>`).join('')}<th>Total</th><th></th>
+      </tr></thead><tbody>
+        ${prod.length ? prod.map(p=>{
+          const total=PIPE_TYPES.reduce((s,t)=>s+(Number(p.pipes&&p.pipes[t])||0),0);
+          return `<tr>
+            <td style="font-weight:600;white-space:nowrap">${fmtDate(p.date)}</td>
+            ${PIPE_TYPES.map(t=>`<td style="text-align:center">${(p.pipes&&p.pipes[t]>0)?`<b>${p.pipes[t]}</b>`:''}</td>`).join('')}
+            <td style="font-weight:700">${total}</td>
+            <td><button class="btn-sm btn-danger" onclick="delProd('${p.id}')">Del</button></td>
+          </tr>`;
+        }).join('') : `<tr><td colspan="${PIPE_TYPES.length+3}"><div class="empty-state"><i class="ti ti-tools"></i>Nothing logged yet</div></td></tr>`}
+      </tbody></table>
+    </div></div>`;
+}
+async function delProd(id) { if(!confirm('Delete this record?')) return; await col('production').doc(id).delete(); }
+function openProdModal(id) {
+  const p = id ? cache.production.find(x=>x.id===id) : null;
+  modal(`<div class="modal">
+    <div class="modal-header">
+      <h3 style="font-size:15px;font-weight:600">Log production</h3>
+      <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Date</label><input type="date" id="p-date" value="${p?.date||today()}"></div>
+      <div class="form-group">
+        <label style="font-size:13px;font-weight:600;margin-bottom:8px">Pipes produced</label>
+        <div class="pipe-grid">
+          ${PIPE_TYPES.map(t=>`<div class="pipe-input-group">
+            <label>${t}</label>
+            <input type="number" id="pp-${t.replace(/\s+/g,'_')}" value="${p?.pipes?.[t]||0}" min="0">
+          </div>`).join('')}
+        </div>
+      </div>
+      <div class="form-group"><label>Notes</label>
+        <textarea id="p-notes" rows="2" style="resize:vertical">${p?.notes||''}</textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveProd('${id||''}')">Save</button>
+    </div>
+  </div>`);
+}
+async function saveProd(id) {
+  const pipes = {};
+  PIPE_TYPES.forEach(t=>{ const v=Number(document.getElementById('pp-'+t.replace(/\s+/g,'_'))?.value||0); if(v>0) pipes[t]=v; });
+  await col('production').doc(id||uid()).set({ date:document.getElementById('p-date').value, pipes, notes:document.getElementById('p-notes').value });
+  closeModal();
+}
+
+// ── DISPATCH ──────────────────────────────────────────────────────────────────
+function renderDispatch() {
+  const orders = cache.orders.filter(o=>o.status==='ready');
+  const content = document.getElementById('content');
+  if(!orders.length) {
+    content.innerHTML=`<div class="alert alert-info"><i class="ti ti-info-circle"></i> Mark orders as <strong>"Ready"</strong> from Orders page first.</div>
+      <div class="card empty-state"><i class="ti ti-truck"></i>No orders ready for dispatch</div>`;
+    return;
+  }
+  const groups = {};
+  orders.forEach(o=>{ const key=(o.address||'Unknown').split(/[\s,]+/).slice(0,2).join(' '); if(!groups[key]) groups[key]=[]; groups[key].push(o); });
+  const drivers=['Driver 1','Driver 2'];
+  const saved=cache.dispatch_assign||{};
+  content.innerHTML=`
+    <div class="alert alert-info"><i class="ti ti-info-circle"></i> Orders grouped by area. Combine same-route orders into one trip.</div>
+    ${Object.entries(groups).map(([area,aOrders])=>{
+      const totalPipes=aOrders.reduce((s,o)=>s+Object.values(o.pipes||{}).reduce((ss,v)=>ss+Number(v),0),0);
+      const totalBal=aOrders.reduce((s,o)=>s+(Number(o.balance)||0),0);
+      const maxKm=Math.max(...aOrders.map(o=>Number(o.km)||0));
+      const assigned=saved[area]||'';
+      const safeArea=encodeURIComponent(area);
+      return `<div class="dispatch-card">
+        <div class="dispatch-route">
+          <i class="ti ti-map-pin"></i><span style="font-size:14px">${area}</span>
+          <span class="badge badge-blue">${aOrders.length} order${aOrders.length>1?'s':''}</span>
+          <span class="badge badge-teal">${totalPipes} pipes</span>
+          ${maxKm?`<span class="badge badge-gray">~${maxKm}km</span>`:''}
+          ${totalBal>0?`<span class="badge badge-amber">₹${fmt(totalBal)} balance</span>`:''}
+          <div style="margin-left:auto">
+            <select style="width:140px;padding:5px 8px;font-size:12px" onchange="assignDriver('${safeArea}',this.value)">
+              <option value="">Assign driver…</option>
+              ${drivers.map(d=>`<option value="${d}"${assigned===d?' selected':''}>${d}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div style="overflow-x:auto"><table style="font-size:12px">
+          <thead><tr><th>Customer</th><th>Phone</th><th>Pipes</th><th>Balance</th><th>Address</th><th>KM</th><th>Del. date</th></tr></thead>
+          <tbody>${aOrders.map(o=>`<tr>
+            <td style="font-weight:600">${o.customer}</td>
+            <td><a href="tel:${o.phone}" style="color:#1a6bc4;text-decoration:none">${o.phone}</a></td>
+            <td>${Object.entries(o.pipes||{}).filter(([,v])=>v>0).map(([k,v])=>`<span class="badge badge-gray">${v}× ${k}</span>`).join(' ')}</td>
+            <td>${o.balance>0?'₹'+fmt(o.balance):'<span class="badge badge-green">Paid</span>'}</td>
+            <td>${o.address||'—'}</td><td>${o.km?`~${o.km}km`:'—'}</td>
+            <td>${fmtDate(o.deliveryDate)}</td>
+          </tr>`).join('')}</tbody>
+        </table></div>
+        ${assigned?`<div style="margin-top:10px;font-size:12px;color:#555;display:flex;align-items:center;gap:8px">
+          <i class="ti ti-check" style="color:#3b8a2a"></i> Assigned to <strong>${assigned}</strong>
+          <button class="btn-sm btn-success" style="margin-left:auto" onclick="markBatchDone('${safeArea}')">Mark all delivered</button>
+        </div>`:''}
+      </div>`;
+    }).join('')}`;
+}
+async function assignDriver(safeArea, driver) {
+  const area=decodeURIComponent(safeArea);
+  const saved=cache.dispatch_assign||{};
+  saved[area]=driver; cache.dispatch_assign=saved;
+  await setAssign(saved);
+}
+async function markBatchDone(safeArea) {
+  const area=decodeURIComponent(safeArea);
+  if(!confirm(`Mark all orders for "${area}" as delivered?`)) return;
+  const batch=firestoreDb.batch();
+  cache.orders.forEach(o=>{ if(o.status==='ready'){ const key=(o.address||'Unknown').split(/[\s,]+/).slice(0,2).join(' '); if(key===area) batch.update(col('orders').doc(o.id),{status:'delivered'}); }});
+  await batch.commit();
+}
+
+// ── STAFF ─────────────────────────────────────────────────────────────────────
+function renderStaff() {
+  document.getElementById('topbar-action').innerHTML =
+    `<button class="btn-primary" onclick="openAttModal()"><i class="ti ti-calendar"></i> Log attendance</button>`;
+  const att=[...cache.attendance];
+  const advances=[...cache.advances].sort((a,b)=>b.date.localeCompare(a.date));
+  const summary=STAFF.map(s=>({
+    name:s, days:att.filter(a=>a.present&&a.staff===s).length,
+    totalAdv:advances.filter(a=>a.staff===s).reduce((sum,a)=>sum+(Number(a.amount)||0),0)
+  }));
+  document.getElementById('content').innerHTML=`
+    <div class="grid-3">
+      ${summary.map(s=>`<div class="card">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <div style="width:40px;height:40px;border-radius:50%;background:#EBF4FF;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#1a6bc4;flex-shrink:0">
+            ${s.name.split(' ').map(w=>w[0]).join('')}
+          </div>
+          <div><div style="font-weight:600;font-size:14px">${s.name}</div>
+            <div style="font-size:12px;color:#888">${s.name.startsWith('Driver')?'Driver':'Helper'}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <div class="metric" style="flex:1"><div class="metric-label">Days present</div><div class="metric-value" style="font-size:20px">${s.days}</div></div>
+          <div class="metric" style="flex:1"><div class="metric-label">Advances</div><div class="metric-value" style="font-size:16px">₹${fmt(s.totalAdv)}</div></div>
+        </div>
+        <button class="btn-sm" style="width:100%" onclick="openAdvModal('${s.name}')">+ Record advance</button>
+      </div>`).join('')}
+    </div>
+    <div class="grid-2">
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:1rem 1.25rem 0.75rem;font-size:14px;font-weight:600;border-bottom:1px solid #f0f0ec">Attendance log</div>
+        <div style="overflow-x:auto"><table>
+          <thead><tr><th>Date</th>${STAFF.map(s=>`<th>${s}</th>`).join('')}</tr></thead>
+          <tbody>
+            ${[...new Set(att.map(a=>a.date))].sort((a,b)=>b.localeCompare(a)).slice(0,20).map(date=>`<tr>
+              <td style="white-space:nowrap;font-weight:500">${fmtDate(date)}</td>
+              ${STAFF.map(s=>{ const r=att.find(a=>a.date===date&&a.staff===s);
+                return `<td>${r?`<span class="badge ${r.present?'badge-green':'badge-red'}">${r.present?'Present':'Absent'}</span>`:'—'}</td>`; }).join('')}
+            </tr>`).join('')||`<tr><td colspan="${STAFF.length+1}"><div class="empty-state" style="padding:1.5rem">No attendance logged</div></td></tr>`}
+          </tbody>
+        </table></div>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:1rem 1.25rem 0.75rem;font-size:14px;font-weight:600;border-bottom:1px solid #f0f0ec">Advance ledger</div>
+        <table><thead><tr><th>Date</th><th>Staff</th><th>Amount</th><th>Note</th></tr></thead>
+          <tbody>
+            ${advances.slice(0,20).map(a=>`<tr>
+              <td style="white-space:nowrap">${fmtDate(a.date)}</td><td>${a.staff}</td>
+              <td style="font-weight:600">₹${fmt(a.amount)}</td>
+              <td style="color:#888;font-size:12px">${a.note||'—'}</td>
+            </tr>`).join('')||`<tr><td colspan="4"><div class="empty-state" style="padding:1.5rem">No advances recorded</div></td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+function openAttModal() {
+  modal(`<div class="modal">
+    <div class="modal-header">
+      <h3 style="font-size:15px;font-weight:600">Log attendance</h3>
+      <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Date</label><input type="date" id="att-date" value="${today()}"></div>
+      ${STAFF.map(s=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f0f0ec">
+          <span style="font-size:14px;font-weight:500">${s}</span>
+          <div style="display:flex;gap:16px">
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;color:#333;margin:0">
+              <input type="radio" name="att-${s.replace(/ /g,'_')}" value="1" checked style="width:auto"> Present
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;color:#333;margin:0">
+              <input type="radio" name="att-${s.replace(/ /g,'_')}" value="0" style="width:auto"> Absent
+            </label>
+          </div>
+        </div>`).join('')}
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveAttendance()">Save attendance</button>
+    </div>
+  </div>`);
+}
+async function saveAttendance() {
+  const date=document.getElementById('att-date').value;
+  const batch=firestoreDb.batch();
+  cache.attendance.filter(a=>a.date===date).forEach(a=>batch.delete(col('attendance').doc(a.id)));
+  STAFF.forEach(s=>{ const val=document.querySelector(`input[name="att-${s.replace(/ /g,'_')}"]:checked`)?.value;
+    batch.set(col('attendance').doc(uid()),{date,staff:s,present:val==='1'}); });
+  await batch.commit(); closeModal();
+}
+function openAdvModal(staffName) {
+  modal(`<div class="modal">
+    <div class="modal-header">
+      <h3 style="font-size:15px;font-weight:600">Record advance — ${staffName}</h3>
+      <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Date</label><input type="date" id="adv-date" value="${today()}"></div>
+      <div class="form-group"><label>Amount (₹)</label><input type="number" id="adv-amount" min="0" placeholder="0"></div>
+      <div class="form-group"><label>Reason / note</label><input type="text" id="adv-note" placeholder="Festival advance, medical, etc."></div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveAdvance('${staffName}')">Save</button>
+    </div>
+  </div>`);
+}
+async function saveAdvance(staff) {
+  const amount=Number(document.getElementById('adv-amount').value||0);
+  if(!amount) { alert('Enter an amount'); return; }
+  await col('advances').doc(uid()).set({ date:document.getElementById('adv-date').value, staff, amount, note:document.getElementById('adv-note').value });
+  closeModal();
+}
+
+// ── BOOT ──────────────────────────────────────────────────────────────────────
+const savedConfig = localStorage.getItem('hpf_firebase_config');
+if (savedConfig) {
+  try { launchApp(JSON.parse(savedConfig)); }
+  catch(e) { document.getElementById('setup-screen').style.display='flex'; }
+} else {
+  document.getElementById('setup-screen').style.display = 'flex';
+}
+</script>
+</body>
+</html>
