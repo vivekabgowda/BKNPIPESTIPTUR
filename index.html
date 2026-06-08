@@ -969,38 +969,121 @@ async function saveOrder(id) {
 }
 
 // ── PRODUCTION ────────────────────────────────────────────────────────────────
-function renderProduction() {
+function renderProduction(fromDate, toDate) {
+  const allProd = [...cache.production].sort((a,b)=>b.date.localeCompare(a.date));
+  // Default date range: first of current month to today
+  const defaultFrom = today().slice(0,7) + '-01';
+  const defaultTo   = today();
+  const fd = fromDate || defaultFrom;
+  const td2 = toDate  || defaultTo;
+
   document.getElementById('topbar-action').innerHTML =
     `<button class="btn-primary" onclick="openQuickProdModal()"><i class="ti ti-plus"></i> Log production</button>`;
-  const prod = [...cache.production].sort((a,b)=>b.date.localeCompare(a.date));
+
+  const filtered = allProd.filter(p => p.date >= fd && p.date <= td2);
+
+  // Totals for filtered range
   const totals = {};
   PIPE_TYPES.forEach(t=>{ totals[t]=0; });
-  prod.forEach(p=>PIPE_TYPES.forEach(t=>{ totals[t]+=(Number(p.pipes&&p.pipes[t])||0); }));
+  filtered.forEach(p=>PIPE_TYPES.forEach(t=>{ totals[t]+=(Number(p.pipes&&p.pipes[t])||0); }));
+  const grandTotal = PIPE_TYPES.reduce((s,t)=>s+totals[t],0);
+
+  // Piecework rates (editable inline)
+  const rates = JSON.parse(localStorage.getItem('hpf_piecerate')||'{}');
+
   document.getElementById('content').innerHTML = `
     <div class="card">
-      <div class="card-title">Cumulative totals — all time</div>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:1rem">
+        <div>
+          <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">From date</label>
+          <input type="date" id="prod-from" value="${fd}" onchange="renderProduction(this.value,document.getElementById('prod-to').value)" style="font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:12px;color:#888;display:block;margin-bottom:4px">To date</label>
+          <input type="date" id="prod-to" value="${td2}" onchange="renderProduction(document.getElementById('prod-from').value,this.value)" style="font-size:13px">
+        </div>
+        <button class="btn-sm" onclick="renderProduction('${today().slice(0,7)+'-01'}','${today()}')">This month</button>
+        <button class="btn-sm" onclick="renderProduction('${prevMonthStart()}','${prevMonthEnd()}')">Last month</button>
+        <button class="btn-sm" onclick="renderProduction('','')">All time</button>
+      </div>
       <div class="pipe-grid">
-        ${PIPE_TYPES.map(t=>`<div class="pipe-input-group">
-          <div style="font-size:11px;color:#888;margin-bottom:4px">${t}</div>
-          <div style="font-size:20px;font-weight:700;text-align:center">${fmt(totals[t])}</div>
+        ${PIPE_TYPES.map(t=>`<div class="pipe-input-group" style="text-align:center">
+          <div style="font-size:10px;color:#888;margin-bottom:2px">${t}</div>
+          <div style="font-size:20px;font-weight:700">${totals[t]||0}</div>
         </div>`).join('')}
       </div>
+      <div style="margin-top:8px;font-size:13px;color:#555;text-align:right">
+        <strong>${filtered.length}</strong> day(s) · <strong>${grandTotal}</strong> total pipes produced
+      </div>
     </div>
+
+    <div class="card">
+      <div style="font-weight:600;font-size:14px;margin-bottom:12px">
+        💰 Piecework Salary Calculator
+        <span style="font-size:11px;font-weight:400;color:#888;margin-left:8px">Enter rate per pipe (₹) — saved automatically</span>
+      </div>
+      <div style="overflow-x:auto"><table style="font-size:13px">
+        <thead><tr>
+          <th>Pipe Type</th><th>Qty Produced</th><th>Rate per pipe (₹)</th><th>Amount (₹)</th>
+        </tr></thead>
+        <tbody>
+          ${PIPE_TYPES.map(t => {
+            const qty = totals[t]||0;
+            const rate = rates[t]||0;
+            const amt = qty * rate;
+            return `<tr>
+              <td style="font-weight:500">${t}</td>
+              <td style="text-align:center;font-weight:700">${qty}</td>
+              <td style="text-align:center">
+                <input type="number" min="0" value="${rate}" placeholder="₹0"
+                  style="width:80px;text-align:center;font-size:13px"
+                  onchange="savePieceRate('${t}',this.value,'${fd}','${td2}')">
+              </td>
+              <td style="text-align:right;font-weight:600;color:${amt>0?'#3b8a2a':'#888'}">
+                ${amt>0?'₹'+fmt(amt):'—'}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+        <tfoot><tr style="background:#f8f8f5">
+          <td colspan="3" style="font-weight:700;text-align:right;padding-right:12px">Total Wages for Period:</td>
+          <td style="font-weight:700;font-size:15px;color:#3b8a2a;text-align:right">
+            ₹${fmt(PIPE_TYPES.reduce((s,t)=>s+(totals[t]||0)*(rates[t]||0),0))}
+          </td>
+        </tr></tfoot>
+      </table></div>
+    </div>
+
     <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto">
       <table><thead><tr>
-        <th>Date</th>${PIPE_TYPES.map(t=>`<th style="white-space:nowrap">${t}</th>`).join('')}<th>Total</th><th></th>
+        <th>Date</th>${PIPE_TYPES.map(t=>`<th style="white-space:nowrap;font-size:11px">${t}</th>`).join('')}<th>Total</th><th></th>
       </tr></thead><tbody>
-        ${prod.length ? prod.map(p=>{
+        ${filtered.length ? filtered.map(p=>{
           const total=PIPE_TYPES.reduce((s,t)=>s+(Number(p.pipes&&p.pipes[t])||0),0);
           return `<tr>
             <td style="font-weight:600;white-space:nowrap">${fmtDate(p.date)}</td>
             ${PIPE_TYPES.map(t=>`<td style="text-align:center">${(p.pipes&&p.pipes[t]>0)?`<b>${p.pipes[t]}</b>`:''}</td>`).join('')}
             <td style="font-weight:700">${total}</td>
-            <td><button class="btn-sm btn-danger" onclick="delProd('${p.id}')">Del</button></td>
+            <td><button class="btn-sm" onclick="openQuickProdModal('${p.id}')">Edit</button>
+                <button class="btn-sm btn-danger" onclick="delProd('${p.id}')">Del</button></td>
           </tr>`;
-        }).join('') : `<tr><td colspan="${PIPE_TYPES.length+3}"><div class="empty-state"><i class="ti ti-tools"></i>Nothing logged yet</div></td></tr>`}
+        }).join('') : `<tr><td colspan="${PIPE_TYPES.length+3}"><div class="empty-state"><i class="ti ti-tools"></i>No production in this date range</div></td></tr>`}
       </tbody></table>
     </div></div>`;
+}
+function savePieceRate(pipeType, rate, fd, td2) {
+  const rates = JSON.parse(localStorage.getItem('hpf_piecerate')||'{}');
+  rates[pipeType] = parseFloat(rate)||0;
+  localStorage.setItem('hpf_piecerate', JSON.stringify(rates));
+  renderProduction(fd, td2);
+}
+function prevMonthStart() {
+  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth()-1);
+  return d.toISOString().slice(0,10);
+}
+function prevMonthEnd() {
+  const d = new Date(); d.setDate(0);
+  return d.toISOString().slice(0,10);
 }
 async function delProd(id) { if(!confirm('Delete this record?')) return; await col('production').doc(id).delete(); }
 
@@ -1154,6 +1237,13 @@ function buildMapsUrl(addresses, callback) {
     callback(url);
   }
 }
+
+function navigateTrip(key) {
+  const addresses = (window._tripAddresses || {})[key] || [];
+  if(!addresses.length) { alert('No addresses found for this trip.'); return; }
+  buildGroupMapsUrl(addresses);
+}
+
 function buildGroupMapsUrl(addresses) {
   return buildMapsUrl(addresses, url => window.open(url, '_blank'));
 }
@@ -1181,11 +1271,17 @@ function renderDispatch() {
   const saved=cache.dispatch_assign||{};
   // Build address list for Maps
   const allAddresses = orders.map(o=>o.address).filter(Boolean);
+  window._allAddresses = allAddresses;
 
+  // Store trip addresses globally so onclick can access them safely
+  window._tripAddresses = {};
+  Object.entries(groups).forEach(([area, aOrds]) => {
+    window._tripAddresses['trip_'+encodeURIComponent(area)] = aOrds.map(o=>o.address).filter(Boolean);
+  });
   content.innerHTML=`
     <div style="display:flex;gap:10px;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
       <div class="alert alert-info" style="margin:0;flex:1"><i class="ti ti-info-circle"></i> Orders grouped by area. Assign drivers below.</div>
-      ${allAddresses.length ? `<button class="btn-primary" style="white-space:nowrap;display:flex;align-items:center;gap:6px;padding:10px 16px" onclick="openFullRoute(${JSON.stringify(allAddresses)})">
+      ${allAddresses.length ? `<button class="btn-primary" style="white-space:nowrap;display:flex;align-items:center;gap:6px;padding:10px 16px" onclick="openFullRoute(window._allAddresses)">
           <i class="ti ti-map-2"></i> Plan Full Route in Maps
         </button>` : ''}
     </div>
@@ -1226,7 +1322,7 @@ function renderDispatch() {
             <i class="ti ti-check" style="color:#3b8a2a"></i> <strong>${assigned}</strong>
           </span>`:''}
           <button class="btn-sm" style="display:flex;align-items:center;gap:4px;color:#1a6bc4;border-color:#1a6bc4;margin-left:${assigned?'auto':''}" 
-            onclick="buildGroupMapsUrl(${JSON.stringify(aOrders.map(o=>o.address).filter(Boolean))})">
+            onclick="navigateTrip('trip_'+encodeURIComponent('${area}'))">
             <i class="ti ti-map-pin"></i> Navigate this trip
           </button>
           ${assigned?`<button class="btn-sm btn-success" onclick="markBatchDone('${safeArea}')">Mark all delivered</button>`:''}
