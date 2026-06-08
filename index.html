@@ -144,6 +144,37 @@ tr:hover td { background:#fafaf8; }
 .mobile-menu-btn { display:none; align-items:center; justify-content:center; width:36px; height:36px; border-radius:8px; }
 .overlay-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.3); z-index:9; }
 .overlay-bg.show { display:block; }
+
+/* Bottom nav */
+.bottom-nav { display:none; position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1px solid #e8e8e4; z-index:20; padding:4px 0 env(safe-area-inset-bottom,4px); }
+.bottom-nav-item { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:6px 4px; cursor:pointer; color:#999; font-size:10px; gap:2px; border:none; background:none; font-family:inherit; }
+.bottom-nav-item i { font-size:20px; }
+.bottom-nav-item.active { color:#1a6bc4; }
+@media (max-width:700px) {
+  .bottom-nav { display:flex; }
+  .main { padding-bottom:60px; }
+  .sidebar { display:none !important; }
+  .main { margin-left:0 !important; }
+}
+/* Hobli search */
+.hobli-results { position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #d0d0cc; border-radius:7px; max-height:180px; overflow-y:auto; z-index:200; box-shadow:0 4px 16px rgba(0,0,0,0.1); margin-top:2px; }
+.hobli-result { padding:8px 12px; font-size:13px; cursor:pointer; border-bottom:1px solid #f0f0ec; }
+.hobli-result:last-child { border-bottom:none; }
+.hobli-result:hover { background:#f5f5f0; }
+.hobli-result .taluk-tag { font-size:11px; color:#aaa; margin-left:6px; }
+.hobli-result .hl { font-weight:700; color:#1a6bc4; }
+.hobli-wrap { position:relative; }
+/* Overdue badge */
+.badge-overdue { background:#fdecea; color:#a02020; border:1px solid #f5c0be; }
+/* Quick prod */
+.qprod-row { display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f0f0ec; }
+.qprod-row:last-child { border-bottom:none; }
+.qprod-stepper { display:flex; align-items:center; gap:8px; }
+.qprod-stepper button { width:30px; height:30px; border-radius:50%; border:1px solid #d0d0cc; background:#f8f8f5; font-size:16px; display:flex; align-items:center; justify-content:center; padding:0; }
+.qprod-stepper span { min-width:28px; text-align:center; font-size:16px; font-weight:600; }
+/* Payment tick */
+.pay-tick { width:20px; height:20px; cursor:pointer; accent-color:#3b8a2a; }
+
 </style>
 </head>
 <body>
@@ -234,9 +265,50 @@ tr:hover td { background:#fafaf8; }
   </div>
 </div>
 
+
+  <nav class="bottom-nav" id="bottom-nav">
+    <button class="bottom-nav-item" id="bn-dashboard" onclick="goto('dashboard');bnActive('dashboard')">
+      <i class="ti ti-layout-dashboard"></i>Home
+    </button>
+    <button class="bottom-nav-item" id="bn-orders" onclick="goto('orders');bnActive('orders')">
+      <i class="ti ti-clipboard-list"></i>Orders
+    </button>
+    <button class="bottom-nav-item" id="bn-production" onclick="goto('production');bnActive('production')">
+      <i class="ti ti-tools"></i>Produce
+    </button>
+    <button class="bottom-nav-item" id="bn-dispatch" onclick="goto('dispatch');bnActive('dispatch')">
+      <i class="ti ti-truck"></i>Dispatch
+    </button>
+    <button class="bottom-nav-item" id="bn-staff" onclick="goto('staff');bnActive('staff')">
+      <i class="ti ti-users"></i>Staff
+    </button>
+  </nav>
+
 <div id="modal-container"></div>
 
 <script>
+
+const AREAS = {
+  "Tiptur Taluk": ["Tiptur (Town)","Kasaba Hobli","Nonavinakere Hobli","Kibbanahalli Hobli",
+    "Honnavalli","Hullenahalli","Banasandra","Biligere","Madenur","Goragondanahalli",
+    "Kanchaghatta","Gurugondanahalli","Rangapura","Mathihalli","Nellikere","Kamalapura"],
+  "Turuvekere Taluk": ["Turuvekere (Town)","Kasaba Hobli (Turuvekere)","Mayasandra Hobli",
+    "Dandinashivara","Chikkaturuvekere","Kodigehalli","Kodinagasandra","Beechanahalli",
+    "Doddaghatta","Banasandra (Turuvekere)","Chandrapura","Devanayakanahalli","Basavanahalli","Bommenahalli","Biganenahalli"],
+  "Arsikere Taluk": ["Arsikere (Town)","Kasaba Hobli (Arsikere)","Banavara Hobli",
+    "Channarayapatna Road","Shettihalli","Kyatanahalli","Mavuthanahalli","Ajjanahalli",
+    "Anandanahalli","Aladahalli","Appenahalli","Annanaikanahalli","Arakere","Adihalli"],
+  "Chikkanayakanahalli Taluk": ["Chikkanayakanahalli (Town)","Kasaba Hobli (CNH)","Huliyurdurga Hobli",
+    "Kallambella Hobli","Akkanahalli","Kallur","Yediyuru","Hirehalli","Kondajji","Doddaguni","Tumkur Road"]
+};
+const ALL_LOCS = [];
+Object.entries(AREAS).forEach(([taluk,villages]) => villages.forEach(v => ALL_LOCS.push({village:v,taluk})));
+
+function bnActive(page) {
+  document.querySelectorAll('.bottom-nav-item').forEach(el => el.classList.remove('active'));
+  const el = document.getElementById('bn-'+page);
+  if(el) el.classList.add('active');
+}
 const PIPE_TYPES = ['300mm NP2','450mm NP2','450mm NP3','600mm NP2','600mm NP3','900mm NP2','900mm NP3','1200mm NP2','1200mm Cistern'];
 const STAFF = ['Driver 1','Driver 2','Helper'];
 const PAGES = [
@@ -403,6 +475,7 @@ function renderNav() {
 function goto(page, silent=false) {
   currentPage = page;
   if(!silent) renderNav();
+  bnActive(page);
   document.getElementById('page-title').textContent = PAGES.find(p=>p.id===page).label;
   document.getElementById('topbar-action').innerHTML = '';
   ({dashboard:renderDashboard,orders:renderOrders,production:renderProduction,dispatch:renderDispatch,staff:renderStaff})[page]();
@@ -557,7 +630,12 @@ function renderDashboard() {
   PIPE_TYPES.forEach(t=>{ pipeSummary[t]=0; });
   prod.forEach(p=>PIPE_TYPES.forEach(t=>{ pipeSummary[t]+=(Number(p.pipes&&p.pipes[t])||0); }));
 
+  const overdue = active.filter(o=>o.deliveryDate && o.deliveryDate < today());
   document.getElementById('content').innerHTML = `
+    ${overdue.length ? `<div class="alert alert-info" style="background:#fdecea;color:#a02020;border-color:#f5c0be">
+      <i class="ti ti-alarm"></i> <strong>${overdue.length} overdue delivery${overdue.length>1?'s':''}</strong> — 
+      ${overdue.map(o=>`<strong>${o.customer}</strong> (${o.address||'?'}, due ${fmtDate(o.deliveryDate)})`).join(' · ')}
+    </div>` : ''}
     <div class="grid-4">
       <div class="metric"><div class="metric-label">Active orders</div><div class="metric-value">${active.length}</div></div>
       <div class="metric"><div class="metric-label">Balance pending</div><div class="metric-value" style="font-size:17px">₹${fmt(totalBal)}</div></div>
@@ -590,6 +668,15 @@ function renderDashboard() {
     </div>`;
 }
 
+
+async function togglePaid(id, checked) {
+  await col('orders').doc(id).update({paid: checked, balance: checked ? 0 : undefined});
+}
+function isOverdue(o) {
+  if(!o.deliveryDate || o.status==='delivered') return false;
+  return o.deliveryDate < today();
+}
+
 // ── ORDERS ────────────────────────────────────────────────────────────────────
 function renderOrders() {
   document.getElementById('topbar-action').innerHTML =
@@ -617,19 +704,20 @@ function renderOrderList(status) {
   el.innerHTML = `<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto">
     <table><thead><tr>
       <th>Date</th><th>Customer</th><th>Phone</th><th>Pipes</th>
-      <th>Advance</th><th>Balance</th><th>Del. date</th><th>Address</th><th>KM</th><th>Notes</th><th>Actions</th>
+      <th>Advance</th><th>Balance</th><th style="min-width:80px">Paid ✓</th><th>Del. date</th><th>Address</th><th>KM</th><th>Notes</th><th>Actions</th>
     </tr></thead><tbody>
-      ${orders.map(o=>`<tr>
+      ${orders.map(o=>`<tr style="${isOverdue(o)?'background:#fff8f8;':''}">  
         <td style="white-space:nowrap">${fmtDate(o.orderDate)}</td>
         <td style="font-weight:600;white-space:nowrap">${o.customer}</td>
         <td><a href="tel:${o.phone}" style="color:#1a6bc4;text-decoration:none">${o.phone}</a></td>
         <td style="font-size:12px;min-width:150px">${Object.entries(o.pipes||{}).filter(([,v])=>v>0).map(([k,v])=>`<span class="badge badge-gray">${v}× ${k}</span>`).join(' ')}</td>
         <td>₹${fmt(o.advance)}</td>
         <td><span class="badge ${Number(o.balance)>0?'badge-amber':'badge-green'}">₹${fmt(o.balance)}</span></td>
+        <td style="text-align:center"><input type="checkbox" class="pay-tick" title="Mark payment cleared" ${o.paid?'checked':''} onchange="togglePaid('${o.id}',this.checked)" onclick="event.stopPropagation()"></td>
         <td style="white-space:nowrap">${fmtDate(o.deliveryDate)}</td>
         <td style="min-width:110px;font-size:12px">${o.address||'—'}</td>
         <td>${o.km?`<span class="badge badge-blue">~${o.km}km</span>`:'—'}</td>
-        <td style="min-width:130px;font-size:12px;color:#555">${o.notes||'—'}</td>
+        <td style="min-width:120px;font-size:12px;color:#555">${o.notes||'—'}</td>
         <td style="white-space:nowrap">
           ${o.status==='pending'?`<button class="btn-sm btn-success" onclick="setStatus('${o.id}','ready')">Ready</button> `:''}
           ${o.status==='ready'?`<button class="btn-sm btn-primary" onclick="setStatus('${o.id}','delivered')">Delivered</button> `:''}
@@ -639,7 +727,19 @@ function renderOrderList(status) {
       </tr>`).join('')}
     </tbody></table></div></div>`;
 }
-async function setStatus(id, status) { await col('orders').doc(id).update({status}); }
+async function setStatus(id, status) {
+  await col('orders').doc(id).update({status});
+  if(status === 'delivered') {
+    const o = cache.orders.find(x=>x.id===id);
+    if(o && Number(o.balance) > 0 && !o.paid) {
+      setTimeout(()=>{
+        if(confirm(`⚠️ Balance of ₹${fmt(o.balance)} still due from ${o.customer}.\nMark payment as received?`)) {
+          col('orders').doc(id).update({paid:true, balance:0});
+        }
+      }, 300);
+    }
+  }
+}
 async function delOrder(id) { if(!confirm('Delete this order?')) return; await col('orders').doc(id).delete(); }
 
 function openOrderModal(id) {
@@ -660,7 +760,14 @@ function openOrderModal(id) {
         <div class="form-group"><label>Delivery date</label><input type="date" id="f-deliveryDate" value="${o?.deliveryDate||''}"></div>
       </div>
       <div class="form-row cols-2">
-        <div class="form-group"><label>Delivery address</label><input type="text" id="f-address" value="${o?.address||''}" placeholder="Village, Taluk, District"></div>
+        <div class="form-group">
+          <label>Village / Hobli <span style="font-size:11px;color:#1a6bc4">(type 2 letters)</span></label>
+          <div class="hobli-wrap">
+            <input type="text" id="f-hobli-search" value="${o?.address||''}" placeholder="e.g. No, Tu, Ki..." autocomplete="off" oninput="hobliSearch(this.value,'f-address')" onfocus="hobliSearch(this.value,'f-address')">
+            <input type="hidden" id="f-address" value="${o?.address||''}">
+            <div class="hobli-results" id="hobli-results" style="display:none"></div>
+          </div>
+        </div>
         <div class="form-group"><label>Distance from Tiptur (km)</label><input type="number" id="f-km" value="${o?.km||''}" min="0" placeholder="e.g. 45"></div>
       </div>
       <div class="form-row cols-2">
@@ -686,6 +793,31 @@ function openOrderModal(id) {
     </div>
   </div>`);
 }
+
+function hobliSearch(val, hiddenId) {
+  const box = document.getElementById('hobli-results');
+  if(!box) return;
+  if(val.length < 2) { box.style.display='none'; return; }
+  const q = val.toLowerCase();
+  const matches = ALL_LOCS.filter(l => l.village.toLowerCase().includes(q)).slice(0,10);
+  if(!matches.length) { box.style.display='none'; return; }
+  box.innerHTML = matches.map(m => {
+    const idx = m.village.toLowerCase().indexOf(q);
+    const hl = m.village.slice(0,idx) + '<span class="hl">' + m.village.slice(idx,idx+val.length) + '</span>' + m.village.slice(idx+val.length);
+    return `<div class="hobli-result" onclick="selectHobli('${m.village.replace(/'/g,"\'")}','${m.taluk.replace(/'/g,"\'")}','${hiddenId}')">${hl}<span class="taluk-tag">${m.taluk}</span></div>`;
+  }).join('');
+  box.style.display = 'block';
+}
+function selectHobli(village, taluk, hiddenId) {
+  document.getElementById('f-hobli-search').value = village;
+  document.getElementById(hiddenId).value = village;
+  document.getElementById('hobli-results').style.display = 'none';
+}
+document.addEventListener('click', e => {
+  const box = document.getElementById('hobli-results');
+  if(box && !e.target.closest('.hobli-wrap')) box.style.display = 'none';
+});
+
 async function saveOrder(id) {
   const pipes = {};
   PIPE_TYPES.forEach(t=>{ const v=Number(document.getElementById('pipe-'+t.replace(/\s+/g,'_'))?.value||0); if(v>0) pipes[t]=v; });
@@ -709,7 +841,7 @@ async function saveOrder(id) {
 // ── PRODUCTION ────────────────────────────────────────────────────────────────
 function renderProduction() {
   document.getElementById('topbar-action').innerHTML =
-    `<button class="btn-primary" onclick="openProdModal()"><i class="ti ti-plus"></i> Log production</button>`;
+    `<button class="btn-primary" onclick="openQuickProdModal()"><i class="ti ti-plus"></i> Log production</button>`;
   const prod = [...cache.production].sort((a,b)=>b.date.localeCompare(a.date));
   const totals = {};
   PIPE_TYPES.forEach(t=>{ totals[t]=0; });
@@ -741,6 +873,60 @@ function renderProduction() {
     </div></div>`;
 }
 async function delProd(id) { if(!confirm('Delete this record?')) return; await col('production').doc(id).delete(); }
+
+function openQuickProdModal(id) {
+  const p = id ? cache.production.find(x=>x.id===id) : null;
+  const counts = {};
+  PIPE_TYPES.forEach(t => counts[t] = p?.pipes?.[t] || 0);
+  modal(`<div class="modal">
+    <div class="modal-header">
+      <h3 style="font-size:15px;font-weight:600">Log production</h3>
+      <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group"><label>Date</label><input type="date" id="qp-date" value="${p?.date||today()}"></div>
+      <div id="qp-pipe-rows">
+        ${PIPE_TYPES.map(t => `
+          <div class="qprod-row">
+            <span style="font-size:13px;font-weight:500">${t}</span>
+            <div class="qprod-stepper">
+              <button type="button" onclick="qpAdj('${t.replace(/\s/g,'_')}', -1)">−</button>
+              <span id="qp-${t.replace(/\s/g,'_')}">${counts[t]}</span>
+              <button type="button" onclick="qpAdj('${t.replace(/\s/g,'_')}', 1)">+</button>
+            </div>
+          </div>`).join('')}
+      </div>
+      <div class="form-group" style="margin-top:12px"><label>Notes</label>
+        <textarea id="qp-notes" rows="2" style="resize:vertical">${p?.notes||''}</textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveQuickProd('${id||''}')">Save</button>
+    </div>
+  </div>`);
+}
+function qpAdj(key, delta) {
+  const el = document.getElementById('qp-'+key);
+  if(!el) return;
+  const newVal = Math.max(0, parseInt(el.textContent||'0') + delta);
+  el.textContent = newVal;
+}
+async function saveQuickProd(id) {
+  const pipes = {};
+  PIPE_TYPES.forEach(t => {
+    const el = document.getElementById('qp-'+t.replace(/\s/g,'_'));
+    const v = parseInt(el?.textContent||'0');
+    if(v > 0) pipes[t] = v;
+  });
+  await col('production').doc(id||uid()).set({
+    date: document.getElementById('qp-date').value,
+    pipes,
+    notes: document.getElementById('qp-notes').value
+  });
+  closeModal();
+}
+
 function openProdModal(id) {
   const p = id ? cache.production.find(x=>x.id===id) : null;
   modal(`<div class="modal">
@@ -812,7 +998,7 @@ function renderDispatch() {
           </div>
         </div>
         <div style="overflow-x:auto"><table style="font-size:12px">
-          <thead><tr><th>Customer</th><th>Phone</th><th>Pipes</th><th>Balance</th><th>Address</th><th>KM</th><th>Del. date</th></tr></thead>
+          <thead><tr><th>Customer</th><th>Phone</th><th>Pipes</th><th>Balance</th><th>Address</th><th>KM</th><th>Del. date</th><th>Notes</th></tr></thead>
           <tbody>${aOrders.map(o=>`<tr>
             <td style="font-weight:600">${o.customer}</td>
             <td><a href="tel:${o.phone}" style="color:#1a6bc4;text-decoration:none">${o.phone}</a></td>
@@ -820,6 +1006,7 @@ function renderDispatch() {
             <td>${o.balance>0?'₹'+fmt(o.balance):'<span class="badge badge-green">Paid</span>'}</td>
             <td>${o.address||'—'}</td><td>${o.km?`~${o.km}km`:'—'}</td>
             <td>${fmtDate(o.deliveryDate)}</td>
+            <td style="font-size:12px;color:#c07000;max-width:160px">${o.notes?`<i class="ti ti-note" style="font-size:12px"></i> ${o.notes}`:'—'}</td>
           </tr>`).join('')}</tbody>
         </table></div>
         ${assigned?`<div style="margin-top:10px;font-size:12px;color:#555;display:flex;align-items:center;gap:8px">
