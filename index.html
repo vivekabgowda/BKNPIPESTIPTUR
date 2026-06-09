@@ -788,6 +788,1287 @@ function getLastSupplier(matId){
 }
 
 function renderMaterials(){
+  document.getElementById('topbar-action').innerHTML =
+    '<div style="display:flex;gap:8px">'+
+      '<button class="btn" onclick="openMatOpeningModal()"><i class="ti ti-archive"></i> Opening stock</button>'+
+      '<button class="btn btn-primary" onclick="openMatModal()"><i class="ti ti-plus"></i> Record delivery</button>'+
+    '</div>';
+  var entries = cache.materials.filter(function(m){return m.type!=='opening';}).slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
+  var hasOpening = cache.materials.some(function(m){return m.type==='opening';});
+
+  // Summary per category
+  var wireSizeQtys = {};
+  WIRE_SIZES.forEach(function(sz){wireSizeQtys[sz.id]=0;});
+  entries.filter(function(m){return m.material==='steel_wire';}).forEach(function(m){
+    WIRE_SIZES.forEach(function(sz){wireSizeQtys[sz.id]+=(Number(m.sizes&&m.sizes[sz.id]&&m.sizes[sz.id].qty||0));});
+  });  var wireAmt  = entries.filter(function(m){return m.material==='steel_wire';}).reduce(function(s,m){return s+(Number(m.totalAmt||0));},0);
+  var wirePaid = entries.filter(function(m){return m.material==='steel_wire';}).reduce(function(s,m){return s+(m.payments||[]).reduce(function(ss,p){return ss+(Number(p.amt||0));},0);},0);
+
+  var singleSummary = MAT_SINGLE.map(function(r){
+    var dels=entries.filter(function(m){return m.material===r.id;});
+    var totalQty=dels.reduce(function(s,m){return s+(Number(m.qty||0));},0);
+    var totalAmt=dels.reduce(function(s,m){return s+(Number(m.totalAmt||0));},0);
+    var totalPaid=dels.reduce(function(s,m){return s+(m.payments||[]).reduce(function(ss,p){return ss+(Number(p.amt||0));},0);},0);
+    return Object.assign({},r,{totalQty:totalQty,totalAmt:totalAmt,totalPaid:totalPaid,balance:totalAmt-totalPaid});
+  });
+
+  // Check migration needed
+  var oldNames = ['Driver 1','Driver 2','Helper'];
+  var hasOld = cache.attendance.some(function(a){return oldNames.indexOf(a.staff)>-1;})||cache.advances.some(function(a){return oldNames.indexOf(a.staff)>-1;});
+
+  // Build tabbed delivery records
+  var allMats = [{id:'steel_wire',label:'Steel Wire',isWire:true}].concat(MAT_SINGLE.map(function(r){return Object.assign({isWire:false},r);}));
+  var tabs = allMats.map(function(r,i){
+    var cnt = entries.filter(function(m){return m.material===r.id;}).length;
+    return '<button class="mat-tab'+(i===0?' active':'')+'" id="mt-'+r.id+'" onclick="switchMatTab(\''+r.id+'\')">'+r.label+(cnt?' <span style="font-size:11px;background:#eff6ff;color:#1e40af;padding:1px 6px;border-radius:999px;margin-left:4px">'+cnt+'</span>':'')+'</button>';
+  }).join('');
+
+  var panels = allMats.map(function(r,i){
+    var matEntries = entries.filter(function(m){return m.material===r.id;});
+    return '<div id="mp-'+r.id+'" style="display:'+(i===0?'block':'none')+'">'+
+      (matEntries.length ? matEntries.map(function(m){
+        var paid=(m.payments||[]).reduce(function(s,p){return s+(Number(p.amt||0));},0);
+        var bal=(Number(m.totalAmt||0))-paid;
+        return '<div style="padding:1rem 1.25rem;border-bottom:1px solid #f1f5f9">'+
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">'+
+            '<div style="flex:1;min-width:0">'+
+              '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">'+
+                '<span style="font-weight:700">'+fmtDate(m.date)+'</span>'+
+                (m.supplier?'<span style="font-size:12px;color:#64748b">'+m.supplier+'</span>':'')+
+              '</div>'+
+              (r.isWire ?
+                '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">'+
+                  WIRE_SIZES.map(function(sz){
+                    var s=m.sizes&&m.sizes[sz.id];
+                    if(!s||!s.qty) return '';
+                    return '<div style="background:#eff6ff;border-radius:6px;padding:5px 10px;font-size:12px"><span style="color:#64748b">'+sz.label+':</span> <span style="font-weight:700">'+fmt(s.qty)+' Kg</span>'+(s.amt?' · ₹'+fmt(s.amt):'')+'</div>';
+                  }).join('')+
+                '</div>'
+              : '<div style="margin-bottom:6px"><span class="badge bg">'+fmt(m.qty)+' '+r.unit+'</span></div>')+
+              (m.totalAmt?'<div style="font-size:13px;display:flex;gap:14px;flex-wrap:wrap"><span>Total: <strong>₹'+fmt(m.totalAmt)+'</strong></span><span style="color:#065f46">Paid: <strong>₹'+fmt(paid)+'</strong></span><span style="color:'+(bal>0?'#991b1b':'#065f46')+';font-weight:600">Balance: ₹'+fmt(bal)+'</span></div>':'')+
+              (m.note?'<div style="font-size:12px;color:#64748b;margin-top:4px">'+m.note+'</div>':'')+
+            '</div>'+
+            '<div style="display:flex;gap:6px;flex-shrink:0">'+
+              '<button class="btn btn-sm" onclick="openMatModal(\''+m.id+'\')">Edit</button>'+
+              '<button class="btn btn-sm btn-primary" onclick="openPayModal(\''+m.id+'\')"><i class="ti ti-cash"></i> Pay</button>'+
+              '<button class="btn btn-sm btn-danger" onclick="delMat(\''+m.id+'\')">Del</button>'+
+            '</div>'+
+          '</div>'+
+          ((m.payments||[]).length?
+            '<div style="margin-top:10px;background:#f8fafc;border-radius:8px;padding:8px 12px;border:1px solid #f1f5f9">'+
+              '<div style="font-size:11px;color:#64748b;font-weight:600;text-transform:uppercase;margin-bottom:6px">Payments</div>'+
+              (m.payments||[]).sort(function(a,b){return a.date.localeCompare(b.date);}).map(function(p,pi){
+                return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #f1f5f9;font-size:13px">'+
+                  '<span style="color:#64748b">'+fmtDate(p.date)+(p.note?' · '+p.note:'')+'</span>'+
+                  '<div style="display:flex;align-items:center;gap:8px"><span style="font-weight:600;color:#065f46">₹'+fmt(p.amt)+'</span><button class="btn btn-sm btn-danger" style="padding:2px 7px;font-size:11px" onclick="delPayment(\''+m.id+'\','+pi+')">✕</button></div>'+
+                '</div>';
+              }).join('')+
+            '</div>'
+          : '')+
+        '</div>';
+      }).join('') : '<div class="empty" style="padding:2rem"><i class="ti ti-package"></i><p>No '+r.label+' deliveries yet</p></div>')+
+    '</div>';
+  }).join('');
+
+  document.getElementById('content').innerHTML =
+    // Summary cards
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:1.25rem">'+
+      '<div class="card" style="margin-bottom:0;grid-column:span 2">'+
+        '<div class="card-title">Steel Wire</div>'+
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">'+
+          WIRE_SIZES.map(function(sz){return '<div class="metric" style="flex:1;min-width:70px;padding:8px;text-align:center"><div class="metric-label">'+sz.label+'</div><div class="metric-value" style="font-size:16px">'+fmt(wireSizeQtys[sz.id])+'<span style="font-size:10px;font-weight:400;color:#94a3b8"> Kg</span></div></div>';}).join('')+
+        '</div>'+
+        (wireAmt>'0'?'<div style="font-size:12px;display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid #f1f5f9"><span>Billed</span><span style="font-weight:600">₹'+fmt(wireAmt)+'</span></div><div style="font-size:12px;display:flex;justify-content:space-between;padding:4px 0"><span style="color:#065f46">Paid</span><span style="font-weight:600;color:#065f46">₹'+fmt(wirePaid)+'</span></div><div style="font-size:13px;display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #e2e8f0"><span style="font-weight:600;color:'+(wireAmt-wirePaid>0?'#991b1b':'#065f46')+'">Balance</span><span style="font-weight:700;color:'+(wireAmt-wirePaid>0?'#991b1b':'#065f46')+'">₹'+fmt(wireAmt-wirePaid)+'</span></div>':'<div style="font-size:12px;color:#94a3b8">No billing yet</div>')+
+      '</div>'+
+      singleSummary.map(function(r){
+        return '<div class="card" style="margin-bottom:0">'+
+          '<div class="card-title">'+r.label+'</div>'+
+          '<div class="metric" style="padding:8px;margin-bottom:8px"><div class="metric-label">Total received</div><div class="metric-value" style="font-size:16px">'+fmt(r.totalQty)+' <span style="font-size:10px;font-weight:400;color:#94a3b8">'+r.unit+'</span></div></div>'+
+          (r.totalAmt?'<div style="font-size:12px;display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid #f1f5f9"><span>Billed</span><span style="font-weight:600">₹'+fmt(r.totalAmt)+'</span></div><div style="font-size:12px;display:flex;justify-content:space-between;padding:4px 0"><span style="color:#065f46">Paid</span><span style="font-weight:600;color:#065f46">₹'+fmt(r.totalPaid)+'</span></div><div style="font-size:13px;display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #e2e8f0"><span style="font-weight:600;color:'+(r.balance>0?'#991b1b':'#065f46')+'">Balance</span><span style="font-weight:700;color:'+(r.balance>0?'#991b1b':'#065f46')+'">₹'+fmt(r.balance)+'</span></div>':'<div style="font-size:12px;color:#94a3b8">No billing yet</div>')+
+        '</div>';
+      }).join('')+
+    '</div>'+
+    // Delivery ledger with tabs
+    '<div class="card" style="padding:0;overflow:hidden">'+
+      '<div style="padding:1rem 1.25rem 0;font-size:14px;font-weight:600;border-bottom:1px solid #e2e8f0">Delivery records</div>'+
+      '<div style="display:flex;overflow-x:auto;border-bottom:2px solid #e2e8f0;padding:0 1rem;background:#f8fafc">'+tabs+'</div>'+
+      panels+
+    '</div>';
+}
+
+function switchMatTab(id){
+  ['steel_wire'].concat(MAT_SINGLE.map(function(r){return r.id;})).forEach(function(mid){
+    var tab=document.getElementById('mt-'+mid);
+    var panel=document.getElementById('mp-'+mid);
+    var active = mid===id;
+    if(tab){tab.classList.toggle('active',active);}
+    if(panel){panel.style.display=active?'block':'none';}
+  });
+}
+
+function openMatModal(editId){
+  var ex = editId ? cache.materials.find(function(m){return m.id===editId;}) : null;
+  var defCat = ex ? ex.material : 'steel_wire';
+  var isWire = defCat==='steel_wire';
+  var sugg = getLastSupplier(defCat);
+
+  modal('<div class="modal" style="max-width:640px">'+
+    '<div class="modal-hd"><h3 style="font-size:15px;font-weight:700">'+(ex?'Edit':'Record')+' delivery</h3><button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#94a3b8">&times;</button></div>'+
+    '<div class="modal-bd">'+
+      '<div class="fr c2">'+
+        '<div class="fg"><label>Date</label><input type="date" id="m-date" value="'+(ex?ex.date:today())+'"></div>'+
+        '<div class="fg"><label>Material</label>'+
+          '<select id="m-cat" onchange="onMatCat()" '+(ex?'disabled':'')+'>'+
+            '<option value="steel_wire"'+(defCat==='steel_wire'?' selected':'')+'>Steel Wire</option>'+
+            MAT_SINGLE.map(function(r){return '<option value="'+r.id+'"'+(defCat===r.id?' selected':'')+'>'+r.label+'</option>';}).join('')+
+          '</select>'+
+          (ex?'<input type="hidden" id="m-cat-h" value="'+defCat+'">':'')+
+        '</div>'+
+      '</div>'+
+      // Wire section
+      '<div id="m-wire" style="'+(isWire?'':'display:none')+'">'+
+        '<div style="background:#eff6ff;border-radius:8px;padding:12px;margin-bottom:12px;border:1px solid #bfdbfe">'+
+          '<div style="font-size:12px;font-weight:600;color:#1e40af;margin-bottom:10px">Qty &amp; amount for each size</div>'+
+          '<div style="display:grid;grid-template-columns:60px 1fr 1fr;gap:6px;margin-bottom:6px"><div></div><div style="font-size:11px;color:#64748b;text-align:center;font-weight:600">Qty (Kg)</div><div style="font-size:11px;color:#64748b;text-align:center;font-weight:600">Amount (₹)</div></div>'+
+          WIRE_SIZES.map(function(sz){
+            var s=ex&&ex.sizes&&ex.sizes[sz.id];
+            return '<div style="display:grid;grid-template-columns:60px 1fr 1fr;gap:6px;margin-bottom:8px;align-items:center">'+
+              '<div style="font-size:13px;font-weight:700;color:#1e40af">'+sz.label+'</div>'+
+              '<input type="number" id="w-qty-'+sz.id+'" min="0" step="0.1" placeholder="0" value="'+(s&&s.qty?s.qty:'')+'" style="text-align:center" oninput="onWireCalc()">'+
+              '<input type="number" id="w-amt-'+sz.id+'" min="0" step="1" placeholder="0" value="'+(s&&s.amt?s.amt:'')+'" style="text-align:center" oninput="onWireCalc()">'+
+            '</div>';
+          }).join('')+
+          '<div style="font-size:12px;padding-top:8px;border-top:1px solid #bfdbfe;display:flex;justify-content:space-between"><span>Combined total:</span><span id="wire-tot" style="font-weight:700;color:#1e40af">₹0</span></div>'+
+        '</div>'+
+      '</div>'+
+      // Single section
+      '<div id="m-single" style="'+(isWire?'display:none':'')+'">'+
+        '<div class="fr c2">'+
+          '<div class="fg"><label>Quantity <span id="m-unit" style="font-size:11px;color:#94a3b8">('+((MAT_SINGLE.find(function(r){return r.id===defCat;}))||{unit:''}).unit+')</span></label>'+
+            '<input type="number" id="m-qty" min="0" step="0.1" placeholder="0" value="'+(ex&&ex.qty?ex.qty:'')+'" oninput="onMatRateCalc()">'+
+          '</div>'+
+          '<div class="fg" id="m-rate-wrap" style="'+(((MAT_SINGLE.find(function(r){return r.id===defCat;}))||{rate:false}).rate?'':'display:none')+'">'+
+            '<label>Rate per Ton (₹)</label>'+
+            '<input type="number" id="m-rate" min="0" step="1" placeholder="0" value="'+(ex&&ex.rate?ex.rate:'')+'" oninput="onMatRateCalc()">'+
+          '</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="fg"><label>Total amount (₹) <span id="m-amt-auto" style="font-size:11px;color:#1e40af"></span></label>'+
+        '<input type="number" id="m-amt" min="0" step="1" placeholder="0 (leave blank if not billed yet)" value="'+(ex&&ex.totalAmt?ex.totalAmt:'')+'">'+
+      '</div>'+
+      '<div class="fg"><label>Supplier <span id="m-sugg-hint" style="font-size:11px;color:#1e40af;cursor:pointer;margin-left:6px" onclick="applySupplierSugg()"></span></label>'+
+        '<input type="text" id="m-supplier" placeholder="Supplier name" value="'+(ex&&ex.supplier?ex.supplier:sugg)+'" oninput="document.getElementById(\'m-sugg-hint\').textContent=\'\'">'+
+      '</div>'+
+      '<div class="fg"><label>Note (optional)</label><input type="text" id="m-note" placeholder="e.g. First lot" value="'+(ex&&ex.note?ex.note:'')+'"></div>'+
+    '</div>'+
+    '<div class="modal-ft"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveMat(\''+(editId||'')+'\')">Save delivery</button></div>'+
+  '</div>');
+  if(isWire) onWireCalc();
+}
+
+function onMatCat(){
+  var cat = (document.getElementById('m-cat-h')||document.getElementById('m-cat')).value;
+  var isWire = cat==='steel_wire';
+  document.getElementById('m-wire').style.display = isWire?'':'none';
+  document.getElementById('m-single').style.display = isWire?'none':'';
+  if(!isWire){
+    var r = MAT_SINGLE.find(function(x){return x.id===cat;});
+    var unitEl = document.getElementById('m-unit');
+    var rateEl = document.getElementById('m-rate-wrap');
+    if(unitEl&&r) unitEl.textContent='('+r.unit+')';
+    if(rateEl) rateEl.style.display = r&&r.rate?'':'none';
+  }
+  var sugg = getLastSupplier(cat);
+  var supplierEl = document.getElementById('m-supplier');
+  var hintEl = document.getElementById('m-sugg-hint');
+  if(supplierEl&&sugg&&!supplierEl.value){supplierEl.value=sugg;if(hintEl)hintEl.textContent='';}
+  else if(sugg&&supplierEl&&supplierEl.value!==sugg){if(hintEl)hintEl.textContent='↩ Use "'+sugg+'"';}
+}
+
+function applySupplierSugg(){
+  var cat=(document.getElementById('m-cat-h')||document.getElementById('m-cat')).value;
+  var sugg=getLastSupplier(cat);
+  var el=document.getElementById('m-supplier');
+  var hint=document.getElementById('m-sugg-hint');
+  if(el&&sugg)el.value=sugg;
+  if(hint)hint.textContent='';
+}
+
+function onWireCalc(){
+  var tot=0;
+  WIRE_SIZES.forEach(function(sz){tot+=parseFloat(document.getElementById('w-amt-'+sz.id).value||0);});
+  var el=document.getElementById('wire-tot');
+  if(el)el.textContent='₹'+Number(tot).toLocaleString('en-IN');
+  var amtEl=document.getElementById('m-amt');
+  if(amtEl&&tot>0)amtEl.value=tot;
+}
+
+function onMatRateCalc(){
+  var cat=(document.getElementById('m-cat-h')||document.getElementById('m-cat')).value;
+  var r=MAT_SINGLE.find(function(x){return x.id===cat;});
+  if(!r||!r.rate)return;
+  var qty=parseFloat(document.getElementById('m-qty').value||0);
+  var rate=parseFloat(document.getElementById('m-rate').value||0);
+  var amt=qty*rate;
+  var amtEl=document.getElementById('m-amt');
+  var autoEl=document.getElementById('m-amt-auto');
+  if(amtEl&&amt>0)amtEl.value=amt;
+  if(autoEl)autoEl.textContent=qty&&rate?'(auto: ₹'+Number(amt).toLocaleString('en-IN')+')':'';
+}
+
+async function saveMat(editId){
+  var btn=document.querySelector('.modal-ft .btn-primary');
+  if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  var cat=(document.getElementById('m-cat-h')||document.getElementById('m-cat')).value;
+  var isWire=cat==='steel_wire';
+  var data;
+  if(isWire){
+    var sizes={};var any=false;
+    WIRE_SIZES.forEach(function(sz){
+      var qty=parseFloat(document.getElementById('w-qty-'+sz.id).value||0);
+      var amt=parseFloat(document.getElementById('w-amt-'+sz.id).value||0);
+      sizes[sz.id]={qty:qty,amt:amt};
+      if(qty>0)any=true;
+    });
+    if(!any){alert('Enter qty for at least one size');if(btn){btn.disabled=false;btn.textContent='Save delivery';}return;}
+    data={date:document.getElementById('m-date').value,material:'steel_wire',sizes:sizes,totalAmt:parseFloat(document.getElementById('m-amt').value||0)||0,supplier:document.getElementById('m-supplier').value.trim(),note:document.getElementById('m-note').value.trim()};
+  }else{
+    var qty=parseFloat(document.getElementById('m-qty').value||0);
+    if(!qty){alert('Enter a quantity');if(btn){btn.disabled=false;btn.textContent='Save delivery';}return;}
+    data={date:document.getElementById('m-date').value,material:cat,qty:qty,rate:parseFloat(document.getElementById('m-rate').value||0)||0,totalAmt:parseFloat(document.getElementById('m-amt').value||0)||0,supplier:document.getElementById('m-supplier').value.trim(),note:document.getElementById('m-note').value.trim()};
+  }
+  try{
+    if(editId){await col('materials').doc(editId).update(data);}
+    else{data.payments=[];await col('materials').doc(uid()).set(data);}
+    closeModal();
+  }catch(e){alert('Save failed: '+e.message);if(btn){btn.disabled=false;btn.textContent='Save delivery';} }
+}
+
+function openPayModal(matId){
+  var entry=cache.materials.find(function(m){return m.id===matId;});
+  if(!entry)return;
+  var isWire=entry.material==='steel_wire';
+  var label=isWire?'Steel Wire':(MAT_SINGLE.find(function(r){return r.id===entry.material;})||{label:entry.material}).label;
+  var paid=(entry.payments||[]).reduce(function(s,p){return s+(Number(p.amt||0));},0);
+  var bal=(Number(entry.totalAmt||0))-paid;
+  modal('<div class="modal">'+
+    '<div class="modal-hd"><h3 style="font-size:15px;font-weight:700">Add payment — '+label+'</h3><button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#94a3b8">&times;</button></div>'+
+    '<div class="modal-bd">'+
+      (entry.totalAmt?'<div class="alert-info" style="margin-bottom:12px">Total: <strong>₹'+fmt(entry.totalAmt)+'</strong> · Paid: <strong>₹'+fmt(paid)+'</strong> · Balance: <strong style="color:'+(bal>0?'#991b1b':'#065f46')+'">₹'+fmt(bal)+'</strong></div>':'')+
+      '<div class="fr c2">'+
+        '<div class="fg"><label>Payment date</label><input type="date" id="pay-date" value="'+today()+'"></div>'+
+        '<div class="fg"><label>Amount (₹)</label><input type="number" id="pay-amt" min="0" placeholder="0"'+(bal>0?' value="'+bal+'"':'')+'></div>'+
+      '</div>'+
+      '<div class="fg"><label>Note (optional)</label><input type="text" id="pay-note" placeholder="Cash, UPI, cheque…"></div>'+
+    '</div>'+
+    '<div class="modal-ft"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="savePayment(\''+matId+'\')">Save payment</button></div>'+
+  '</div>');
+}
+
+async function savePayment(matId){
+  var btn=document.querySelector('.modal-ft .btn-primary');
+  if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  var amt=parseFloat(document.getElementById('pay-amt').value||0);
+  if(!amt){alert('Enter an amount');if(btn){btn.disabled=false;btn.textContent='Save payment';}return;}
+  var entry=cache.materials.find(function(m){return m.id===matId;});
+  if(!entry)return;
+  var payments=(entry.payments||[]).concat([{date:document.getElementById('pay-date').value,amt:amt,note:document.getElementById('pay-note').value.trim()}]);
+  try{await col('materials').doc(matId).update({payments:payments});closeModal();}
+  catch(e){alert('Save failed: '+e.message);if(btn){btn.disabled=false;btn.textContent='Save payment';} }
+}
+
+async function delPayment(matId,idx){
+  if(!confirm('Remove this payment?'))return;
+  var entry=cache.materials.find(function(m){return m.id===matId;});
+  if(!entry)return;
+  var payments=(entry.payments||[]).filter(function(_,i){return i!==idx;});
+  await col('materials').doc(matId).update({payments:payments});
+}
+
+function openMatOpeningModal(){
+  var existing=cache.materials.filter(function(m){return m.type==='opening';});
+  var getEx=function(id){return existing.find(function(m){return m.material===id;});};
+  var wireEx=getEx('steel_wire');
+  modal('<div class="modal" style="max-width:640px">'+
+    '<div class="modal-hd"><h3 style="font-size:15px;font-weight:700">Material opening stock</h3><button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#94a3b8">&times;</button></div>'+
+    '<div class="modal-bd">'+
+      '<div class="alert-info" style="margin-bottom:1rem">Enter how much of each material you already have right now. Saved permanently — edit anytime.</div>'+
+      '<div style="background:#f8fafc;border-radius:8px;padding:12px;margin-bottom:12px;border:1px solid #e2e8f0">'+
+        '<div style="font-size:13px;font-weight:700;margin-bottom:10px">Steel Wire (Kg)</div>'+
+        '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">'+
+          WIRE_SIZES.map(function(sz){var val=wireEx&&wireEx.sizes&&wireEx.sizes[sz.id]?wireEx.sizes[sz.id].qty:'';return '<div class="pig"><label>'+sz.label+'</label><input type="number" id="mos-w-'+sz.id+'" min="0" step="0.1" placeholder="0" value="'+val+'" style="text-align:center;font-size:16px;font-weight:700"></div>';}).join('')+
+        '</div>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">'+
+        MAT_SINGLE.map(function(r){var ex=getEx(r.id);var val=ex?ex.qty:'';return '<div class="pig"><label>'+r.label+' ('+r.unit+')</label><input type="number" id="mos-'+r.id+'" min="0" step="0.1" placeholder="0" value="'+val+'" style="text-align:center;font-size:16px;font-weight:700"></div>';}).join('')+
+      '</div>'+
+    '</div>'+
+    '<div class="modal-ft"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveMatOpening()">Save</button></div>'+
+  '</div>');
+}
+
+async function saveMatOpening(){
+  var btn=document.querySelector('.modal-ft .btn-primary');
+  if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  try{
+    var batch=db.batch();
+    cache.materials.filter(function(m){return m.type==='opening';}).forEach(function(m){batch.delete(db.collection('materials').doc(m.id));});
+    var wireSizes={};var wireAny=false;
+    WIRE_SIZES.forEach(function(sz){var qty=parseFloat((document.getElementById('mos-w-'+sz.id)||{value:0}).value||0);if(qty>0){wireSizes[sz.id]={qty:qty,amt:0};wireAny=true;} });
+    if(wireAny){batch.set(db.collection('materials').doc(uid()),{type:'opening',date:today(),material:'steel_wire',sizes:wireSizes,totalAmt:0,supplier:'Opening stock',note:'Opening stock',payments:[]});}
+    MAT_SINGLE.forEach(function(r){var qty=parseFloat((document.getElementById('mos-'+r.id)||{value:0}).value||0);if(qty>0){batch.set(db.collection('materials').doc(uid()),{type:'opening',date:today(),material:r.id,qty:qty,totalAmt:0,supplier:'Opening stock',note:'Opening stock',payments:[]});} });
+    await batch.commit();
+    closeModal();
+  }catch(e){alert('Save failed: '+e.message);if(btn){btn.disabled=false;btn.textContent='Save';} }
+}
+
+async function delMat(id){if(!confirm('Delete delivery and all payments?'))return;await db.collection('materials').doc(id).delete();}
+
+
+// ── STAFF ────────────────────────────────────────────────────────────────────
+var MIGRATION_MAP = {'Driver 1':'Umesh','Driver 2':'Revanna','Helper':'Ramesh'};
+
+function renderStaff(){
+  document.getElementById('topbar-action').innerHTML =
+    '<div style="display:flex;gap:8px">'+
+      '<button class="btn" onclick="openEditStaffModal()"><i class="ti ti-users"></i> Edit names</button>'+
+      '<button class="btn btn-primary" onclick="openAttModal()"><i class="ti ti-calendar"></i> Log attendance</button>'+
+    '</div>';
+
+  var att = cache.attendance;
+  var advances = cache.advances.slice().sort(function(a,b){return b.date.localeCompare(a.date);});
+  var oldNames = Object.keys(MIGRATION_MAP);
+  var hasOld = att.some(function(a){return oldNames.indexOf(a.staff)>-1;})||advances.some(function(a){return oldNames.indexOf(a.staff)>-1;});
+
+  var summary = STAFF.map(function(s){
+    return {name:s,days:att.filter(function(a){return a.present&&a.staff===s;}).length,
+      totalAdv:advances.filter(function(a){return a.staff===s;}).reduce(function(sum,a){return sum+(Number(a.amount||0));},0)};
+  });
+
+  document.getElementById('content').innerHTML =
+    (hasOld?'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 16px;margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px"><div><strong>⚠ Some records still use old names</strong> (Driver 1/2/Helper)</div><button id="mig-btn" class="btn" style="background:#78350f;color:#fff;border-color:#78350f" onclick="migrateStaffNames()">Fix old records</button></div>':'')+
+    '<div class="grid-3">'+
+      summary.map(function(s){
+        return '<div class="card">'+
+          '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">'+
+            '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#1e40af,#2563eb);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:16px;flex-shrink:0">'+s.name.slice(0,2).toUpperCase()+'</div>'+
+            '<div><div style="font-weight:700;font-size:15px">'+s.name+'</div></div>'+
+          '</div>'+
+          '<div class="metric" style="margin-bottom:8px"><div class="metric-label">Days present</div><div class="metric-value">'+s.days+'</div></div>'+
+          '<div class="metric" style="margin-bottom:12px"><div class="metric-label">Total advances</div><div class="metric-value" style="font-size:18px">₹'+fmt(s.totalAdv)+'</div></div>'+
+          '<button class="btn btn-sm btn-primary" onclick="openAdvModal(\''+s.name+'\')"><i class="ti ti-plus"></i> Record advance</button>'+
+        '</div>';
+      }).join('')+
+    '</div>'+
+    // Attendance log
+    '<div class="card" style="padding:0;overflow:hidden">'+
+      '<div style="padding:1rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid #e2e8f0">Attendance log</div>'+
+      '<div style="overflow-x:auto"><table>'+
+        '<thead><tr><th>Date</th>'+STAFF.map(function(s){return '<th>'+s+'</th>';}).join('')+'</tr></thead>'+
+        '<tbody>'+
+          (function(){
+            var dates = [...new Set(att.map(function(a){return a.date;}))].sort(function(a,b){return b.localeCompare(a);}).slice(0,30);
+            return dates.length ? dates.map(function(date){
+              return '<tr><td style="white-space:nowrap;font-weight:500">'+fmtDate(date)+'</td>'+
+                STAFF.map(function(s){
+                  var r=att.find(function(a){return a.date===date&&a.staff===s;});
+                  return '<td>'+(r?'<span class="badge '+(r.present?'gg':'rg')+'">'+(r.present?'Present':'Absent')+'</span>':'—')+'</td>';
+                }).join('')+
+              '</tr>';
+            }).join('') : '<tr><td colspan="'+(STAFF.length+1)+'"><div class="empty" style="padding:1.5rem">No attendance logged</div></td></tr>';
+          })()+
+        '</tbody>'+
+      '</table></div>'+
+    '</div>'+
+    // Advance ledger
+    '<div class="card" style="padding:0;overflow:hidden">'+
+      '<div style="padding:1rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid #e2e8f0">Advance ledger</div>'+
+      '<table><thead><tr><th>Date</th><th>Staff</th><th>Amount</th><th>Note</th><th></th></tr></thead><tbody>'+
+        (advances.length ? advances.slice(0,30).map(function(a){
+          return '<tr><td>'+fmtDate(a.date)+'</td><td>'+a.staff+'</td><td style="font-weight:600">₹'+fmt(a.amount)+'</td><td style="color:#64748b;font-size:12px">'+(a.note||'—')+'</td><td><button class="btn btn-sm btn-danger" onclick="delAdvance(\''+a.id+'\')">Del</button></td></tr>';
+        }).join('') : '<tr><td colspan="5"><div class="empty" style="padding:1.5rem">No advances recorded</div></td></tr>')+
+      '</tbody></table>'+
+    '</div>';
+}
+
+function openEditStaffModal(){
+  modal('<div class="modal">'+
+    '<div class="modal-hd"><h3 style="font-size:15px;font-weight:700">Edit staff names</h3><button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#94a3b8">&times;</button></div>'+
+    '<div class="modal-bd">'+
+      '<p style="font-size:13px;color:#64748b;margin-bottom:12px">Names saved to Firestore — shared across all devices.</p>'+
+      STAFF.map(function(s,i){return '<div class="fg"><label>Staff '+(i+1)+'</label><input type="text" id="sn-'+i+'" value="'+s+'"></div>';}).join('')+
+    '</div>'+
+    '<div class="modal-ft"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveStaffNames()">Save names</button></div>'+
+  '</div>');
+}
+
+async function saveStaffNames(){
+  var btn=document.querySelector('.modal-ft .btn-primary');
+  if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  var names=STAFF.map(function(_,i){return (document.getElementById('sn-'+i)||{value:''}).value.trim();});
+  if(names.some(function(n){return !n;})){alert('All names required');if(btn){btn.disabled=false;btn.textContent='Save names';}return;}
+  try{
+    // Save to Firestore first — single source of truth for all devices
+    await db.collection('meta').doc('staff').set({names:names});
+    STAFF=names;
+    localStorage.setItem('hpf_staff',JSON.stringify(STAFF));
+    closeModal();renderStaff();
+  }catch(e){alert('Save failed: '+e.message);if(btn){btn.disabled=false;btn.textContent='Save names';} }
+}
+
+async function migrateStaffNames(){
+  var oldNames=Object.keys(MIGRATION_MAP);
+  var attFix=cache.attendance.filter(function(a){return oldNames.indexOf(a.staff)>-1;});
+  var advFix=cache.advances.filter(function(a){return oldNames.indexOf(a.staff)>-1;});
+  if(!attFix.length&&!advFix.length){alert('No old records found.');return;}
+  if(!confirm('Rename '+attFix.length+' attendance + '+advFix.length+' advance records from Driver 1/2/Helper to Umesh/Revanna/Ramesh?'))return;
+  var btn=document.getElementById('mig-btn');
+  if(btn){btn.disabled=true;btn.textContent='Migrating…';}
+  try{
+    var batch=db.batch();
+    attFix.forEach(function(a){batch.update(db.collection('attendance').doc(a.id),{staff:MIGRATION_MAP[a.staff]});});
+    advFix.forEach(function(a){batch.update(db.collection('advances').doc(a.id),{staff:MIGRATION_MAP[a.staff]});});
+    await batch.commit();
+    alert('Done! '+( attFix.length+advFix.length)+' records updated.');
+  }catch(e){alert('Migration failed: '+e.message);if(btn){btn.disabled=false;btn.textContent='Fix old records';} }
+}
+
+function openAttModal(){
+  var d=today();
+  modal('<div class="modal">'+
+    '<div class="modal-hd"><h3 style="font-size:15px;font-weight:700">Log attendance</h3><button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#94a3b8">&times;</button></div>'+
+    '<div class="modal-bd">'+
+      '<div class="fg"><label>Date</label><input type="date" id="att-date" value="'+d+'"></div>'+
+      STAFF.map(function(s){
+        var ex=cache.attendance.find(function(a){return a.date===d&&a.staff===s;});
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f1f5f9">'+
+          '<span style="font-weight:500">'+s+'</span>'+
+          '<div style="display:flex;gap:12px">'+
+            '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="att-'+s.replace(/ /g,'_')+'" value="1"'+(ex&&ex.present?' checked':'')+'> Present</label>'+
+            '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="radio" name="att-'+s.replace(/ /g,'_')+'" value="0"'+(ex&&!ex.present?' checked':'')+'> Absent</label>'+
+          '</div>'+
+        '</div>';
+      }).join('')+
+    '</div>'+
+    '<div class="modal-ft"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveAttendance()">Save attendance</button></div>'+
+  '</div>');
+}
+
+async function saveAttendance(){
+  var btn=document.querySelector('.modal-ft .btn-primary');
+  if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  var date=document.getElementById('att-date').value;
+  var batch=db.batch();
+  cache.attendance.filter(function(a){return a.date===date;}).forEach(function(a){batch.delete(db.collection('attendance').doc(a.id));});
+  STAFF.forEach(function(s){
+    var val=(document.querySelector('input[name="att-'+s.replace(/ /g,'_')+'"]:checked')||{}).value;
+    batch.set(db.collection('attendance').doc(uid()),{date:date,staff:s,present:val==='1'});
+  });
+  try{await batch.commit();closeModal();}catch(e){alert('Save failed: '+e.message);if(btn){btn.disabled=false;btn.textContent='Save attendance';} }
+}
+
+function openAdvModal(staff){
+  modal('<div class="modal">'+
+    '<div class="modal-hd"><h3 style="font-size:15px;font-weight:700">Record advance — '+staff+'</h3><button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#94a3b8">&times;</button></div>'+
+    '<div class="modal-bd">'+
+      '<div class="fr c2">'+
+        '<div class="fg"><label>Date</label><input type="date" id="adv-date" value="'+today()+'"></div>'+
+        '<div class="fg"><label>Amount (₹)</label><input type="number" id="adv-amount" min="0" placeholder="0"></div>'+
+      '</div>'+
+      '<div class="fg"><label>Note (optional)</label><input type="text" id="adv-note" placeholder="Reason…"></div>'+
+    '</div>'+
+    '<div class="modal-ft"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveAdvance(\''+staff+'\')">Save</button></div>'+
+  '</div>');
+}
+
+async function saveAdvance(staff){
+  var btn=document.querySelector('.modal-ft .btn-primary');
+  if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  var amount=Number(document.getElementById('adv-amount').value||0);
+  if(!amount){alert('Enter an amount');if(btn){btn.disabled=false;btn.textContent='Save';}return;}
+  try{
+    await db.collection('advances').doc(uid()).set({date:document.getElementById('adv-date').value,staff:staff,amount:amount,note:document.getElementById('adv-note').value});
+    closeModal();
+  }catch(e){alert('Save failed: '+e.message);if(btn){btn.disabled=false;btn.textContent='Save';} }
+}
+
+async function delAdvance(id){if(!confirm('Delete this advance?'))return;await db.collection('advances').doc(id).delete();}
+
+// ── EXCEL EXPORT ──────────────────────────────────────────────────────────────
+async function exportExcel(){
+  try{
+    var results=await Promise.all([getAll('orders'),getAll('production'),getAll('attendance'),getAll('advances'),getAll('materials')]);
+    var orders=results[0],prod=results[1],att=results[2],advs=results[3],mats=results[4];
+    var wb=XLSX.utils.book_new();
+
+    // Orders
+    var oData=orders.map(function(o){return {'Date':fmtDate(o.orderDate),'Customer':o.customer,'Phone':o.phone||'','Address':o.address||'','Route':o.route||'','Km':o.km||0,'Pipes':Object.entries(o.pipes||{}).map(function(kv){return kv[0]+':'+kv[1];}).join(', '),'Total':o.total||0,'Advance':o.advance||0,'Balance':o.balance||0,'Status':o.status||''};});
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(oData),'Orders');
+
+    // Production
+    var pData=prod.filter(function(p){return p.type!=='opening';}).map(function(p){var r={'Date':fmtDate(p.date)};PIPE_TYPES.forEach(function(t){r[t]=p.pipes&&p.pipes[t]||0;});r['Total']=PIPE_TYPES.reduce(function(s,t){return s+(p.pipes&&p.pipes[t]||0);},0);return r;});
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(pData.length?pData:[{No:'No data'}]),'Production');
+
+    // Attendance
+    var attDates=[...new Set(att.map(function(a){return a.date;}))].sort();
+    var attData=attDates.map(function(date){var r={'Date':fmtDate(date)};STAFF.forEach(function(s){var a=att.find(function(x){return x.date===date&&x.staff===s;});r[s]=a?(a.present?'Present':'Absent'):'—';});return r;});
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(attData.length?attData:[{No:'No data'}]),'Attendance');
+
+    // Advances
+    var advData=advs.map(function(a){return {'Date':fmtDate(a.date),'Staff':a.staff,'Amount':a.amount||0,'Note':a.note||''};});
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(advData.length?advData:[{No:'No data'}]),'Advances');
+
+    // Materials
+    var matData=[];mats.forEach(function(m){
+      var isWire=m.material==='steel_wire';
+      var paid=(m.payments||[]).reduce(function(s,p){return s+(Number(p.amt||0));},0);
+      matData.push({'Date':fmtDate(m.date),'Material':isWire?'Steel Wire':(MAT_SINGLE.find(function(r){return r.id===m.material;})||{label:m.material}).label,'Qty':isWire?'(see sizes)':m.qty||0,'Total ₹':m.totalAmt||0,'Paid ₹':paid,'Balance ₹':(m.totalAmt||0)-paid,'Supplier':m.supplier||''});
+      if(isWire)WIRE_SIZES.forEach(function(sz){var s=m.sizes&&m.sizes[sz.id];if(s&&s.qty)matData.push({'Date':'','Material':'  '+sz.label,'Qty':s.qty,'Total ₹':s.amt||0,'Paid ₹':'','Balance ₹':'','Supplier':''});});
+      (m.payments||[]).forEach(function(p){matData.push({'Date':fmtDate(p.date),'Material':'  → Payment','Qty':'','Total ₹':'','Paid ₹':p.amt||0,'Balance ₹':'','Supplier':p.note||''});});
+    });
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(matData.length?matData:[{No:'No data'}]),'Materials');
+
+    XLSX.writeFile(wb,'HumePipes_'+today()+'.xlsx');
+  }catch(e){alert('Export failed: '+e.message);}
+}
+
+// ── BOOT ─────────────────────────────────────────────────────────────────────
+var saved = localStorage.getItem('hpf_config');
+if(saved){
+  try{
+    var cfg=JSON.parse(saved);
+    startApp(cfg);
+  }catch(e){
+    localStorage.removeItem('hpf_config');
+    document.getElementById('setup-page').style.display='flex';
+  }
+}else{
+  document.getElementById('setup-page').style.display='flex';
+}
+</script>
+</body>
+</html>        <div id="user-lbl" style="font-size:11px;color:rgba(255,255,255,0.3);margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+          <span id="sync-dot" style="width:6px;height:6px;border-radius:50%;background:#34d399;display:inline-block"></span>
+          <span id="sync-lbl" style="font-size:11px;color:rgba(255,255,255,0.4)">Connected</span>
+        </div>
+        <button onclick="exportExcel()" style="width:100%;padding:7px;background:#166534;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:6px">📊 Export Excel</button>
+        <button onclick="doLogout()" style="width:100%;padding:7px;background:none;border:1px solid rgba(255,255,255,0.15);border-radius:6px;font-size:12px;color:rgba(255,255,255,0.5);cursor:pointer">Sign out</button>
+      </div>
+    </aside>
+    <!-- MAIN -->
+    <div style="margin-left:220px;flex:1;min-width:0">
+      <div id="topbar" style="background:#fff;border-bottom:1px solid #e2e8f0;padding:0 1.5rem;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:9;box-shadow:0 1px 3px rgba(0,0,0,0.06)">
+        <h2 id="page-title" style="font-size:16px;font-weight:700;color:#1e293b"></h2>
+        <div id="topbar-action"></div>
+      </div>
+      <div id="content" style="padding:1.5rem"></div>
+    </div>
+  </div>
+  <!-- BOTTOM NAV (mobile) -->
+  <nav id="bottom-nav" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e2e8f0;z-index:20;padding:4px 0"></nav>
+  <!-- OVERLAY -->
+  <div id="overlay" onclick="closeSidebar()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9"></div>
+  <!-- MODAL -->
+  <div id="modal-wrap"></div>
+</div>
+
+<style>
+@keyframes spin{to{transform:rotate(360deg)} }
+#login-page{display:none}
+.nav-btn{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;font-size:13px;color:rgba(255,255,255,0.5);border-radius:8px;margin:2px 8px;border:none;background:none;width:calc(100% - 16px);text-align:left;font-family:inherit}
+.nav-btn:hover{background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.85)}
+.nav-btn.active{background:rgba(37,99,235,0.25);color:#fff;font-weight:600}
+.nav-btn.active i{color:#60a5fa}
+.nav-btn i{font-size:16px;width:18px;text-align:center}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:1.25rem;margin-bottom:1rem;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
+.card-title{font-size:11px;font-weight:700;margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between;color:#64748b;text-transform:uppercase;letter-spacing:.07em}
+.metric{background:#f8fafc;border-radius:8px;padding:1rem;border:1px solid #e2e8f0}
+.metric-label{font-size:11px;color:#64748b;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.metric-value{font-size:26px;font-weight:700;color:#0f172a;line-height:1}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+.grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1rem}
+.btn{cursor:pointer;border:1px solid #e2e8f0;background:#fff;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:500;color:#0f172a;font-family:inherit;display:inline-flex;align-items:center;gap:5px}
+.btn:hover{background:#f8fafc}
+.btn-primary{background:#1e40af;color:#fff;border-color:#1e40af;font-weight:600}
+.btn-primary:hover{background:#1e3a8a}
+.btn-success{background:#065f46;color:#fff;border-color:#065f46;font-weight:600}
+.btn-danger{color:#991b1b;border-color:#fecaca}
+.btn-danger:hover{background:#fef2f2}
+.btn-sm{padding:4px 10px;font-size:12px;border-radius:6px}
+.btn-excel{background:#166534;color:#fff;border-color:#166534;font-weight:600}
+input,select,textarea{width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:9px 12px;font-size:13px;background:#fff;color:#0f172a;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+label{font-size:12px;color:#64748b;display:block;margin-bottom:5px;font-weight:500}
+.fg{margin-bottom:14px}
+.fr{display:grid;gap:12px}
+.fr.c2{grid-template-columns:1fr 1fr}
+.fr.c3{grid-template-columns:1fr 1fr 1fr}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 14px;font-size:11px;font-weight:700;color:#64748b;border-bottom:2px solid #e2e8f0;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;background:#f1f5f9}
+td{padding:11px 14px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#f8fafc}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600}
+.bg{background:#eff6ff;color:#1e40af}
+.gg{background:#ecfdf5;color:#065f46;border:1px solid #6ee7b7}
+.ag{background:#fffbeb;color:#78350f;border:1px solid #fde68a}
+.rg{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+.gr{background:#f1f5f9;color:#64748b}
+.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.6);display:flex;align-items:center;justify-content:center;z-index:100;padding:1rem;backdrop-filter:blur(3px)}
+.modal{background:#fff;border-radius:16px;width:600px;max-width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal-hd{padding:1rem 1.25rem;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:1}
+.modal-bd{padding:1.25rem}
+.modal-ft{padding:1rem 1.25rem;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;gap:8px;background:#f8fafc;border-radius:0 0 16px 16px}
+.empty{text-align:center;padding:3rem 1rem;color:#94a3b8}
+.empty i{font-size:40px;display:block;margin-bottom:.75rem;opacity:.3}
+.pipe-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.pig{background:#f8fafc;border-radius:8px;padding:10px;border:1px solid #e2e8f0}
+.pig label{font-size:11px;font-weight:600;margin-bottom:5px}
+.pig input{font-size:14px;text-align:center;font-weight:600}
+.tab-bar{display:flex;margin-bottom:1.25rem;border-bottom:2px solid #e2e8f0;gap:4px}
+.tab{padding:9px 16px;font-size:13px;cursor:pointer;border:none;background:none;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:0;font-family:inherit;font-weight:500}
+.tab.active{color:#1e40af;border-bottom-color:#1e40af;font-weight:700}
+.dispatch-card{border:1px solid #e2e8f0;border-radius:12px;padding:1rem;margin-bottom:.75rem;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.qrow{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f1f5f9}
+.qrow:last-child{border-bottom:none}
+.qstep{display:flex;align-items:center;gap:10px}
+.qstep button{width:32px;height:32px;border-radius:50%;border:1px solid #e2e8f0;background:#f8fafc;font-size:16px;display:flex;align-items:center;justify-content:center;padding:0;font-weight:600;cursor:pointer}
+.qstep span{min-width:28px;text-align:center;font-size:17px;font-weight:700}
+.hobli-wrap{position:relative}
+.hobli-results,.route-results{position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #e2e8f0;border-radius:8px;max-height:180px;overflow-y:auto;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,.08);margin-top:3px}
+.hobli-result,.route-result{padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid #f1f5f9}
+.hobli-result:hover,.route-result:hover{background:#eff6ff;color:#1e40af}
+.hl{font-weight:700;color:#1e40af}
+.alert-info{background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:12px}
+.step{background:#f8fafc;border-radius:8px;padding:1rem;margin-bottom:.75rem;border:1px solid #e2e8f0}
+.step-num{display:inline-flex;width:24px;height:24px;border-radius:50%;background:#1e40af;color:#fff;font-size:12px;font-weight:700;align-items:center;justify-content:center;margin-right:6px}
+.overdue-badge{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+.mat-tab{flex-shrink:0;padding:10px 16px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:#64748b;font-family:inherit}
+.mat-tab.active{color:#1e40af;border-bottom-color:#2563eb}
+@media(max-width:700px){
+  #sidebar{transform:translateX(-100%);transition:transform .25s}
+  #sidebar.open{transform:translateX(0)}
+  [style*="margin-left:220px"]{margin-left:0!important;padding-bottom:68px}
+  .grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
+  .pipe-grid{grid-template-columns:1fr 1fr}
+  .fr.c2,.fr.c3{grid-template-columns:1fr}
+  #bottom-nav{display:flex!important}
+  #content{padding:1rem}
+  #topbar{padding:0 1rem}
+}
+</style>
+
+<script>
+// ── GLOBALS ──────────────────────────────────────────────────────────────────
+var db, currentPage = 'dashboard', listeners = [];
+var STAFF = JSON.parse(localStorage.getItem('hpf_staff')||'null') || ['Driver 1','Driver 2','Helper'];
+var DEFAULT_STAFF = ['Driver 1','Driver 2','Helper'];
+
+var PIPE_TYPES = ['300mm NP2','450mm NP2','450mm NP3','600mm NP2','600mm NP3','900mm NP2','900mm NP3','1200mm NP2','1200mm Cistern'];
+
+var MAT_SINGLE = [
+  {id:'cement', label:'Cement', unit:'Bags', rate:false},
+  {id:'steel6', label:'Steel 6mm', unit:'Kg', rate:false},
+  {id:'msand',  label:'M-Sand', unit:'Tons', rate:true},
+  {id:'agg20',  label:'20mm Aggregate', unit:'Tons', rate:true}
+];
+var WIRE_SIZES = [
+  {id:'w25', label:'2.5mm'},
+  {id:'w4',  label:'4mm'},
+  {id:'w5',  label:'5mm'}
+];
+
+var PAGES = [
+  {id:'dashboard', label:'Dashboard', icon:'ti-layout-dashboard'},
+  {id:'orders',    label:'Orders',    icon:'ti-clipboard-list'},
+  {id:'production',label:'Production',icon:'ti-tools'},
+  {id:'dispatch',  label:'Dispatch',  icon:'ti-truck'},
+  {id:'materials', label:'Materials', icon:'ti-package'},
+  {id:'staff',     label:'Staff',     icon:'ti-users'}
+];
+
+var cache = {orders:[],production:[],attendance:[],advances:[],materials:[]};
+
+// ── SETUP & AUTH ──────────────────────────────────────────────────────────────
+function show(id){
+  ['setup-page','login-page','loading-page','app-page'].forEach(function(p){
+    var el = document.getElementById(p);
+    el.style.display = 'none';
+  });
+  var target = document.getElementById(id);
+  target.style.display = id==='loading-page' ? 'flex' : id==='app-page' ? 'block' : 'flex';
+  if(id==='login-page') target.style.flexDirection = 'column';
+}
+
+function showSetup(){ show('setup-page'); }
+
+function doSetup(){
+  var raw = document.getElementById('config-box').value.trim();
+  var errEl = document.getElementById('setup-err');
+  errEl.style.display = 'none';
+  if(!raw){ errEl.textContent='Please paste your Firebase config.'; errEl.style.display='block'; return; }
+  // Extract the object - find first { to last }
+  var start = raw.indexOf('{');
+  var end   = raw.lastIndexOf('}');
+  if(start===-1||end===-1){ errEl.textContent='Could not find { } in config. Please paste the full firebaseConfig object.'; errEl.style.display='block'; return; }
+  var obj = raw.slice(start, end+1);
+  // Quote unquoted keys
+  obj = obj.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g, '$1"$2"$3');
+  // Remove trailing commas
+  obj = obj.replace(/,(\s*[}\]])/g, '$1');
+  var config;
+  try{ config = JSON.parse(obj); }
+  catch(e){ errEl.textContent='Parse error: '+e.message; errEl.style.display='block'; return; }
+  if(!config.apiKey||!config.projectId){ errEl.textContent='Missing apiKey or projectId. Please paste the complete config.'; errEl.style.display='block'; return; }
+  localStorage.setItem('hpf_config', JSON.stringify(config));
+  startApp(config);
+}
+
+function startApp(config){
+  show('loading-page');
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(config);
+    db = firebase.firestore();
+    db.enablePersistence().catch(function(){});
+    firebase.auth().onAuthStateChanged(function(user){
+      if(user){ loadData(user); }
+      else{ show('login-page'); }
+    });
+  } catch(e){
+    show('setup-page');
+    var errEl = document.getElementById('setup-err');
+    errEl.textContent = 'Firebase error: '+e.message;
+    errEl.style.display = 'block';
+  }
+}
+
+function doLogin(){
+  var email = document.getElementById('login-email').value.trim();
+  var pass  = document.getElementById('login-pass').value;
+  var errEl = document.getElementById('login-err');
+  errEl.style.display = 'none';
+  if(!email||!pass){ errEl.textContent='Enter email and password.'; errEl.style.display='block'; return; }
+  firebase.auth().signInWithEmailAndPassword(email,pass).catch(function(e){
+    errEl.textContent = e.code==='auth/invalid-credential'?'Wrong email or password.':e.message;
+    errEl.style.display = 'block';
+  });
+}
+
+function doLogout(){
+  if(!confirm('Sign out?')) return;
+  listeners.forEach(function(u){u()});
+  listeners=[];
+  firebase.auth().signOut();
+}
+
+// ── DATA LOADING ──────────────────────────────────────────────────────────────
+function getAll(col){
+  return db.collection(col).get().then(function(snap){
+    if(!snap||!snap.docs) return [];
+    return snap.docs.map(function(d){ return Object.assign({id:d.id},d.data()); });
+  }).catch(function(){ return []; });
+}
+
+function listen(col, cb){
+  var unsub = db.collection(col).onSnapshot(function(snap){
+    if(!snap||!snap.docs) return;
+    cache[col] = snap.docs.map(function(d){ return Object.assign({id:d.id},d.data()); });
+    cb();
+  });
+  listeners.push(unsub);
+}
+
+function getStaff(){
+  return db.collection('meta').doc('staff').get().then(function(doc){
+    if(doc.exists && doc.data().names && doc.data().names.length){
+      STAFF = doc.data().names;
+      localStorage.setItem('hpf_staff', JSON.stringify(STAFF));
+    }
+  }).catch(function(){});
+}
+
+function saveStaffFS(){
+  return db.collection('meta').doc('staff').set({names:STAFF});
+}
+
+async function loadData(user){
+  show('loading-page');
+  await getStaff();
+  var results = await Promise.all([
+    getAll('orders'), getAll('production'), getAll('attendance'),
+    getAll('advances'), getAll('materials')
+  ]);
+  cache.orders=results[0]; cache.production=results[1]; cache.attendance=results[2];
+  cache.advances=results[3]; cache.materials=results[4];
+
+  document.getElementById('user-lbl').textContent = user.email;
+  show('app-page');
+  renderNav();
+  setupBottomNav();
+  goto('dashboard');
+
+  listen('orders',     function(){ if(['orders','dashboard','dispatch'].indexOf(currentPage)>-1) goto(currentPage,true); });
+  listen('production', function(){ if(['production','dashboard'].indexOf(currentPage)>-1) goto(currentPage,true); });
+  listen('attendance', function(){ if(currentPage==='staff') goto(currentPage,true); });
+  listen('advances',   function(){ if(currentPage==='staff') goto(currentPage,true); });
+  listen('materials',  function(){ if(['materials','dashboard'].indexOf(currentPage)>-1) goto(currentPage,true); });
+
+  // Staff name sync across devices
+  db.collection('meta').doc('staff').onSnapshot(function(doc){
+    if(doc.exists && doc.data().names){
+      STAFF = doc.data().names;
+      localStorage.setItem('hpf_staff', JSON.stringify(STAFF));
+      if(currentPage==='staff') goto('staff',true);
+    }
+  });
+
+  window.addEventListener('online',  function(){ setSyncStatus(true); });
+  window.addEventListener('offline', function(){ setSyncStatus(false); });
+  setSyncStatus(navigator.onLine);
+}
+
+function setSyncStatus(online){
+  var dot = document.getElementById('sync-dot');
+  var lbl = document.getElementById('sync-lbl');
+  if(dot) dot.style.background = online ? '#34d399' : '#f87171';
+  if(lbl) lbl.textContent = online ? 'Connected' : 'Offline';
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+function today(){ return new Date().toISOString().slice(0,10); }
+function fmt(n){ return Number(n||0).toLocaleString('en-IN'); }
+function fmtDate(d){
+  if(!d) return '—';
+  var p = d.split('-');
+  if(p.length!==3) return d;
+  return p[2]+'/'+p[1]+'/'+p[0];
+}
+function col(c){ return db.collection(c); }
+function modal(html){ document.getElementById('modal-wrap').innerHTML='<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'+html+'</div>'; }
+function closeModal(){ document.getElementById('modal-wrap').innerHTML=''; }
+
+// ── NAV ───────────────────────────────────────────────────────────────────────
+function renderNav(){
+  document.getElementById('sidenav').innerHTML = PAGES.map(function(p){
+    return '<button class="nav-btn'+(currentPage===p.id?' active':'')+'" onclick="goto(\''+p.id+'\');"><i class="ti '+p.icon+'"></i>'+p.label+'</button>';
+  }).join('');
+}
+
+function setupBottomNav(){
+  var bn = document.getElementById('bottom-nav');
+  var items = [{id:'dashboard',icon:'ti-layout-dashboard',label:'Home'},{id:'orders',icon:'ti-clipboard-list',label:'Orders'},{id:'production',icon:'ti-tools',label:'Produce'},{id:'materials',icon:'ti-package',label:'Materials'},{id:'staff',icon:'ti-users',label:'Staff'}];
+  bn.innerHTML = items.map(function(p){
+    return '<button id="bnb-'+p.id+'" onclick="goto(\''+p.id+'\')" style="flex:1;display:flex;flex-direction:column;align-items:center;padding:7px 4px 5px;border:none;background:none;color:#94a3b8;font-size:10px;gap:3px;cursor:pointer;font-family:inherit"><i class="ti '+p.icon+'" style="font-size:22px"></i>'+p.label+'</button>';
+  }).join('');
+}
+
+function goto(page, silent){
+  currentPage = page;
+  if(!silent) renderNav();
+  // Update bottom nav active
+  ['dashboard','orders','production','materials','staff','dispatch'].forEach(function(p){
+    var el = document.getElementById('bnb-'+p);
+    if(el) el.style.color = p===page ? '#1e40af' : '#94a3b8';
+  });
+  document.getElementById('page-title').textContent = (PAGES.find(function(p){return p.id===page;})||{label:page}).label;
+  ({dashboard:renderDashboard,orders:renderOrders,production:renderProduction,dispatch:renderDispatch,materials:renderMaterials,staff:renderStaff})[page]();
+}
+
+function openSidebar(){ document.getElementById('sidebar').classList.add('open'); document.getElementById('overlay').style.display='block'; }
+function closeSidebar(){ document.getElementById('sidebar').classList.remove('open'); document.getElementById('overlay').style.display='none'; }
+
+// ── STOCK ─────────────────────────────────────────────────────────────────────
+function computeStock(){
+  var stock = {};
+  PIPE_TYPES.forEach(function(t){ stock[t]=0; });
+  cache.production.forEach(function(p){
+    PIPE_TYPES.forEach(function(t){ stock[t] += Number(p.pipes&&p.pipes[t]||0); });
+  });
+  cache.orders.filter(function(o){ return o.status==='ready'||o.status==='delivered'; }).forEach(function(o){
+    PIPE_TYPES.forEach(function(t){ stock[t] -= Number(o.pipes&&o.pipes[t]||0); });
+  });
+  return stock;
+}
+
+// ── DASHBOARD ─────────────────────────────────────────────────────────────────
+function renderDashboard(){
+  document.getElementById('topbar-action').innerHTML = '';
+  var orders  = cache.orders;
+  var prod    = cache.production;
+  var active  = orders.filter(function(o){ return o.status!=='delivered'; });
+  var totalBal= active.reduce(function(s,o){ return s+(Number(o.balance)||0); },0);
+  var todayP  = prod.filter(function(p){ return p.type!=='opening'&&p.date===today(); });
+  var todayTot= todayP.reduce(function(s,p){ return s+PIPE_TYPES.reduce(function(ss,t){ return ss+(Number(p.pipes&&p.pipes[t]||0)); },0); },0);
+  var todayAtt= cache.attendance.filter(function(a){ return a.date===today(); });
+  var stock   = computeStock();
+
+  var pipeSummary = {};
+  PIPE_TYPES.forEach(function(t){ pipeSummary[t]=0; });
+  prod.forEach(function(p){ PIPE_TYPES.forEach(function(t){ pipeSummary[t]+=(Number(p.pipes&&p.pipes[t]||0)); }); });
+
+  var stockCards = PIPE_TYPES.map(function(t){
+    var s = stock[t]||0;
+    var color = s<=0?'#991b1b':s<5?'#78350f':'#065f46';
+    var bg    = s<=0?'#fef2f2':s<5?'#fffbeb':'#ecfdf5';
+    return '<div style="background:'+bg+';border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#64748b;margin-bottom:4px">'+t+'</div><div style="font-size:20px;font-weight:700;color:'+color+'">'+fmt(s)+'</div></div>';
+  }).join('');
+
+  var matCards = [].concat(
+    WIRE_SIZES.map(function(sz){
+      var qty = cache.materials.filter(function(m){return m.material==='steel_wire';}).reduce(function(s,m){return s+(Number(m.sizes&&m.sizes[sz.id]&&m.sizes[sz.id].qty||0));},0);
+      return '<div style="background:#eff6ff;border-radius:8px;padding:8px;text-align:center"><div style="font-size:10px;color:#64748b">Steel '+sz.label+'</div><div style="font-size:16px;font-weight:700;color:#1e40af">'+fmt(qty)+'</div><div style="font-size:10px;color:#94a3b8">Kg</div></div>';
+    }),
+    MAT_SINGLE.map(function(r){
+      var qty = cache.materials.filter(function(m){return m.material===r.id;}).reduce(function(s,m){return s+(Number(m.qty||0));},0);
+      var color = qty<=0?'#991b1b':'#065f46';
+      var bg    = qty<=0?'#fef2f2':'#ecfdf5';
+      return '<div style="background:'+bg+';border-radius:8px;padding:8px;text-align:center"><div style="font-size:10px;color:#64748b">'+r.label+'</div><div style="font-size:16px;font-weight:700;color:'+color+'">'+fmt(qty)+'</div><div style="font-size:10px;color:#94a3b8">'+r.unit+'</div></div>';
+    })
+  ).join('');
+
+  document.getElementById('content').innerHTML =
+    '<div class="grid-4" style="margin-bottom:1rem">'+
+      '<div class="metric"><div class="metric-label">Active orders</div><div class="metric-value">'+active.length+'</div></div>'+
+      '<div class="metric"><div class="metric-label">Balance pending</div><div class="metric-value" style="font-size:18px">₹'+fmt(totalBal)+'</div></div>'+
+      '<div class="metric"><div class="metric-label">Pipes today</div><div class="metric-value">'+todayTot+'</div></div>'+
+      '<div class="metric"><div class="metric-label">Staff present</div><div class="metric-value">'+todayAtt.filter(function(a){return a.present;}).length+'/'+STAFF.length+'</div></div>'+
+    '</div>'+
+    '<div class="grid-2">'+
+      '<div class="card"><div class="card-title">Upcoming deliveries <button class="btn btn-sm" onclick="goto(\'orders\')">View all</button></div>'+
+        (active.length ? active.slice(0,6).map(function(o){
+          return '<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f1f5f9"><div><div style="font-weight:600">'+o.customer+'</div><div style="font-size:12px;color:#64748b">'+(o.address||'—')+'</div></div><div style="text-align:right"><div style="font-size:12px;color:#64748b">'+fmtDate(o.deliveryDate)+'</div><span class="badge '+(o.balance>0?'ag':'gg')+'">'+(o.balance>0?'₹'+fmt(o.balance)+' due':'Paid')+'</span></div></div>';
+        }).join('') : '<div class="empty"><i class="ti ti-clipboard-list"></i>No active orders</div>')+
+      '</div>'+
+      '<div class="card"><div class="card-title">Pipe stock <span style="font-weight:400;font-size:10px;color:#94a3b8">(produced − dispatched)</span></div>'+
+        '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px">'+stockCards+'</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="card"><div class="card-title">Raw material stock <button class="btn btn-sm" onclick="goto(\'materials\')">Update</button></div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px">'+matCards+'</div>'+
+    '</div>';
+}
+
+
+// ── ORDERS ────────────────────────────────────────────────────────────────────
+var AREAS = {"Tiptur Taluk":["Tiptur (Town)","Kasaba Hobli","Nonavinakere Hobli","Kibbanahalli Hobli","Honnavalli","Hullenahalli","Banasandra","Biligere","Madenur","Goragondanahalli","Kanchaghatta","Gurugondanahalli","Rangapura","Mathihalli","Nellikere","Kamalapura"],"Turuvekere Taluk":["Turuvekere (Town)","Kasaba Hobli (Turuvekere)","Mayasandra Hobli","Soolagehalli","Kunigal Road","Yediyuru","Shivapura","Huliyurdurga"],"Kunigal Taluk":["Kunigal (Town)","Nandini Layout","Huliyurdurga","Shettikere","Doddabele"],"Sira Taluk":["Sira (Town)","Dodderi Hobli","Kadaba Hobli","Kallambella"],"Gubbi Taluk":["Gubbi (Town)","Yediyuru Hobli","Koratagere Road"],"Hassan District":["Hassan (City)","Channarayapatna","Arsikere","Belur","Sakleshpur"],"Chitradurga District":["Hiriyur","Challakere","Holalkere"],"Chikkamagaluru District":["Kadur","Birur","Tarikere"]};
+
+function renderOrders(){
+  document.getElementById('topbar-action').innerHTML = '<button class="btn btn-primary" onclick="openOrderModal()"><i class="ti ti-plus"></i> New order</button>';
+  var orders = cache.orders.slice().sort(function(a,b){ return (b.orderDate||'').localeCompare(a.orderDate||''); });
+  var filter = 'all';
+  function render(f){
+    filter=f;
+    var filtered = f==='all' ? orders : orders.filter(function(o){return o.status===f;});
+    var cnt = function(s){ return orders.filter(function(o){return o.status===s;}).length; };
+    document.getElementById('orders-content').innerHTML =
+      '<div class="tab-bar">'+
+        ['all','pending','ready','delivered'].map(function(s){
+          var lbl = {all:'All ('+orders.length+')',pending:'Pending ('+cnt('pending')+')',ready:'Ready ('+cnt('ready')+')',delivered:'Delivered ('+cnt('delivered')+')'};
+          return '<button class="tab'+(filter===s?' active':'')+'" onclick="(function(){'+('renderOrdersFilter(\''+s+'\')')+'})()">'+lbl[s]+'</button>';
+        }).join('')+
+      '</div>'+
+      (filtered.length ?
+        '<div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Customer</th><th>Address</th><th>Pipes</th><th>Amount</th><th>Status</th><th></th></tr></thead><tbody>'+
+        filtered.map(function(o){
+          var pipes = Object.entries(o.pipes||{}).map(function(kv){return kv[0]+': '+kv[1];}).join(', ');
+          var overdue = o.deliveryDate && o.deliveryDate < today() && o.status!=='delivered';
+          return '<tr>'+
+            '<td style="white-space:nowrap">'+fmtDate(o.orderDate)+'</td>'+
+            '<td><div style="font-weight:600">'+o.customer+'</div><div style="font-size:11px;color:#64748b">'+fmtDate(o.deliveryDate)+(overdue?' <span class="badge overdue-badge">Overdue</span>':'')+'</div></td>'+
+            '<td style="font-size:12px;color:#64748b">'+(o.address||'—')+(o.km?' · '+o.km+'km':'')+'</td>'+
+            '<td style="font-size:12px">'+(pipes||'—')+'</td>'+
+            '<td><div>₹'+fmt(o.total)+'</div>'+(o.balance>0?'<div style="font-size:11px;color:#991b1b">₹'+fmt(o.balance)+' due</div>':'<div style="font-size:11px;color:#065f46">Paid</div>')+'</td>'+
+            '<td>'+statusBadge(o.status)+'</td>'+
+            '<td style="white-space:nowrap">'+
+              (o.status==='pending'?'<button class="btn btn-sm btn-success" style="margin-right:4px" onclick="setStatus(\''+o.id+'\',\'ready\')">Ready</button>':'')+
+              (o.status==='ready'?'<button class="btn btn-sm btn-primary" style="margin-right:4px" onclick="setStatus(\''+o.id+'\',\'delivered\')">Delivered</button>':'')+
+              '<button class="btn btn-sm" style="margin-right:4px" onclick="openOrderModal(\''+o.id+'\')">Edit</button>'+
+              '<button class="btn btn-sm btn-danger" onclick="delOrder(\''+o.id+'\')">Del</button>'+
+            '</td></tr>';
+        }).join('')+
+        '</tbody></table></div>'
+      : '<div class="empty"><i class="ti ti-clipboard-list"></i>No orders</div>');
+  }
+  document.getElementById('content').innerHTML = '<div id="orders-content"></div>';
+  render('all');
+  window.renderOrdersFilter = render;
+}
+
+function statusBadge(s){
+  var m = {pending:'<span class="badge ag">Pending</span>',ready:'<span class="badge bg">Ready</span>',delivered:'<span class="badge gg">Delivered</span>'};
+  return m[s]||s;
+}
+
+async function setStatus(id,status){
+  await col('orders').doc(id).update({status:status});
+}
+
+async function delOrder(id){
+  if(!confirm('Delete this order?')) return;
+  await col('orders').doc(id).delete();
+}
+
+function openOrderModal(id){
+  var o = id ? cache.orders.find(function(x){return x.id===id;}) : null;
+  var pipes = o ? (o.pipes||{}) : {};
+  modal('<div class="modal">'+
+    '<div class="modal-hd"><h3 style="font-size:15px;font-weight:700">'+(id?'Edit':'New')+' Order</h3><button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#94a3b8">&times;</button></div>'+
+    '<div class="modal-bd">'+
+      '<div class="fr c2">'+
+        '<div class="fg"><label>Customer name</label><input id="o-customer" value="'+(o?o.customer||'':'')+'"></div>'+
+        '<div class="fg"><label>Phone</label><input id="o-phone" value="'+(o?o.phone||'':'')+'"></div>'+
+      '</div>'+
+      '<div class="fr c2">'+
+        '<div class="fg"><label>Order date</label><input type="date" id="o-orderDate" value="'+(o?o.orderDate||today():today())+'"></div>'+
+        '<div class="fg"><label>Delivery date</label><input type="date" id="o-delivDate" value="'+(o?o.deliveryDate||'':'')+'"></div>'+
+      '</div>'+
+      '<div class="fg"><label>Address / Village</label><input id="o-address" value="'+(o?o.address||'':'')+'"></div>'+
+      '<div class="fr c2">'+
+        '<div class="fg"><label>Route</label><input id="o-route" value="'+(o?o.route||'':'')+'"></div>'+
+        '<div class="fg"><label>Distance (km)</label><input type="number" id="o-km" value="'+(o?o.km||'':'')+'"></div>'+
+      '</div>'+
+      '<div class="fg"><label>Pipes ordered</label>'+
+        '<div class="pipe-grid">'+
+          PIPE_TYPES.map(function(t){
+            var key = 'o-p-'+t.replace(/\s+/g,'_');
+            return '<div class="pig"><label>'+t+'</label><input type="number" id="'+key+'" min="0" value="'+(pipes[t]||0)+'"></div>';
+          }).join('')+
+        '</div>'+
+      '</div>'+
+      '<div class="fr c3">'+
+        '<div class="fg"><label>Total (₹)</label><input type="number" id="o-total" value="'+(o?o.total||'':'')+'"></div>'+
+        '<div class="fg"><label>Advance (₹)</label><input type="number" id="o-advance" value="'+(o?o.advance||'':'')+'"></div>'+
+        '<div class="fg"><label>Balance (₹)</label><input type="number" id="o-balance" value="'+(o?o.balance||'':'')+'"></div>'+
+      '</div>'+
+      '<div class="fg"><label>Notes</label><input id="o-notes" value="'+(o?o.notes||'':'')+'"></div>'+
+    '</div>'+
+    '<div class="modal-ft"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveOrder(\''+( id||'')+'\')">Save order</button></div>'+
+  '</div>');
+}
+
+async function saveOrder(id){
+  var btn = document.querySelector('.modal-ft .btn-primary');
+  if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  var customer = document.getElementById('o-customer').value.trim();
+  if(!customer){alert('Customer name required');if(btn){btn.disabled=false;btn.textContent='Save order';}return;}
+  var pipes = {};
+  PIPE_TYPES.forEach(function(t){
+    var v = Number(document.getElementById('o-p-'+t.replace(/\s+/g,'_')).value||0);
+    if(v>0) pipes[t]=v;
+  });
+  var total   = Number(document.getElementById('o-total').value||0);
+  var advance = Number(document.getElementById('o-advance').value||0);
+  var balance = Number(document.getElementById('o-balance').value);
+  if(isNaN(balance)) balance = Math.max(0,total-advance);
+  var data = {
+    customer:customer,
+    phone:document.getElementById('o-phone').value.trim(),
+    orderDate:document.getElementById('o-orderDate').value,
+    deliveryDate:document.getElementById('o-delivDate').value,
+    address:document.getElementById('o-address').value.trim(),
+    route:document.getElementById('o-route').value.trim(),
+    km:Number(document.getElementById('o-km').value||0),
+    total:total,advance:advance,balance:balance,
+    pipes:pipes,
+    notes:document.getElementById('o-notes').value,
+    status:id?(cache.orders.find(function(o){return o.id===id;})||{status:'pending'}).status:'pending'
+  };
+  try{
+    await col('orders').doc(id||uid()).set(data);
+    closeModal();
+  }catch(e){
+    alert('Save failed: '+e.message);
+    if(btn){btn.disabled=false;btn.textContent='Save order';}
+  }
+}
+
+// ── PRODUCTION ───────────────────────────────────────────────────────────────
+function renderProduction(){
+  document.getElementById('topbar-action').innerHTML =
+    '<div style="display:flex;gap:8px">'+
+      '<button class="btn" onclick="openOpeningStockModal()"><i class="ti ti-archive"></i> Opening stock</button>'+
+      '<button class="btn btn-primary" onclick="openProdModal()"><i class="ti ti-plus"></i> Log production</button>'+
+    '</div>';
+
+  var stock = computeStock();
+  var allProd = cache.production.filter(function(p){return p.type!=='opening';}).sort(function(a,b){return b.date.localeCompare(a.date);});
+  var hasOpening = cache.production.some(function(p){return p.type==='opening';});
+
+  var stockGrid = PIPE_TYPES.map(function(t){
+    var s = stock[t]||0;
+    var c = s<=0?'#991b1b':s<5?'#78350f':'#065f46';
+    var bg = s<=0?'#fef2f2':s<5?'#fffbeb':'#ecfdf5';
+    var bd = s<=0?'#fecaca':s<5?'#fde68a':'#6ee7b7';
+    return '<div style="background:'+bg+';border:1px solid '+bd+';border-radius:8px;padding:10px;text-align:center"><div style="font-size:10px;color:#64748b;margin-bottom:4px">'+t+'</div><div style="font-size:22px;font-weight:700;color:'+c+'">'+fmt(s)+'</div></div>';
+  }).join('');
+
+  document.getElementById('content').innerHTML =
+    '<div class="card">'+
+      '<div class="card-title">Current pipe stock '+
+        (hasOpening?'<span class="badge gg">Opening stock set</span>':'<button class="btn btn-sm" style="color:#78350f;border-color:#fde68a" onclick="openOpeningStockModal()">⚠ Set opening stock</button>')+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px">'+stockGrid+'</div>'+
+    '</div>'+
+    '<div class="card" style="padding:0;overflow:hidden">'+
+      '<div style="padding:1rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid #e2e8f0">Production log</div>'+
+      (allProd.length ?
+        '<div style="overflow-x:auto"><table><thead><tr><th>Date</th>'+PIPE_TYPES.map(function(t){return '<th>'+t+'</th>';}).join('')+'<th>Total</th><th></th></tr></thead><tbody>'+
+        allProd.map(function(p){
+          var tot = PIPE_TYPES.reduce(function(s,t){return s+(Number(p.pipes&&p.pipes[t]||0));},0);
+          return '<tr><td style="white-space:nowrap;font-weight:600">'+fmtDate(p.date)+'</td>'+
+            PIPE_TYPES.map(function(t){return '<td>'+(p.pipes&&p.pipes[t]?p.pipes[t]:'')+'</td>';}).join('')+
+            '<td style="font-weight:700">'+tot+'</td>'+
+            '<td><button class="btn btn-sm" style="margin-right:4px" onclick="openProdModal(\''+p.id+'\')">Edit</button><button class="btn btn-sm btn-danger" onclick="delProd(\''+p.id+'\')">Del</button></td>'+
+          '</tr>';
+        }).join('')+'</tbody></table></div>'
+      : '<div class="empty"><i class="ti ti-tools"></i>No production logged yet</div>')+
+    '</div>';
+}
+
+function openProdModal(id){
+  var p = id ? cache.production.find(function(x){return x.id===id;}) : null;
+  var pipes = p ? (p.pipes||{}) : {};
+  modal('<div class="modal">'+
+    '<div class="modal-hd"><h3 style="font-size:15px;font-weight:700">Log production</h3><button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#94a3b8">&times;</button></div>'+
+    '<div class="modal-bd">'+
+      '<div class="fg"><label>Date</label><input type="date" id="p-date" value="'+(p?p.date:today())+'"></div>'+
+      '<div class="fg"><label>Pipes produced</label>'+
+        '<div class="pipe-grid">'+
+          PIPE_TYPES.map(function(t){
+            return '<div class="pig"><label>'+t+'</label>'+
+              '<div style="display:flex;align-items:center;gap:6px;margin-top:4px">'+
+                '<button type="button" onclick="adjProd(\'pr-'+t.replace(/\s+/g,'_')+'\', -1)" style="width:28px;height:28px;border-radius:50%;border:1px solid #e2e8f0;background:#f8fafc;font-size:14px;cursor:pointer;flex-shrink:0">−</button>'+
+                '<input type="number" id="pr-'+t.replace(/\s+/g,'_')+'" value="'+(pipes[t]||0)+'" min="0" style="text-align:center;font-size:15px;font-weight:700;padding:6px">'+
+                '<button type="button" onclick="adjProd(\'pr-'+t.replace(/\s+/g,'_')+'\', 1)" style="width:28px;height:28px;border-radius:50%;border:1px solid #e2e8f0;background:#f8fafc;font-size:14px;cursor:pointer;flex-shrink:0">+</button>'+
+              '</div></div>';
+          }).join('')+
+        '</div>'+
+      '</div>'+
+      '<div class="fg"><label>Notes</label><input id="p-notes" value="'+(p?p.notes||'':'')+'"></div>'+
+    '</div>'+
+    '<div class="modal-ft"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-primary" onclick="saveProd(\''+( id||'')+'\')">Save</button></div>'+
+  '</div>');
+}
+
+function adjProd(id, delta){
+  var el = document.getElementById(id);
+  if(el) el.value = Math.max(0,(parseInt(el.value)||0)+delta);
+}
+
+async function saveProd(id){
+  var btn = document.querySelector('.modal-ft .btn-primary');
+  if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  var pipes={};
+  PIPE_TYPES.forEach(function(t){
+    var v=Number(document.getElementById('pr-'+t.replace(/\s+/g,'_')).value||0);
+    if(v>0) pipes[t]=v;
+  });
+  try{
+    await col('production').doc(id||uid()).set({date:document.getElementById('p-date').value,pipes:pipes,notes:document.getElementById('p-notes').value});
+    closeModal();
+  }catch(e){alert('Save failed: '+e.message);if(btn){btn.disabled=false;btn.textContent='Save';} }
+}
+
+async function delProd(id){ if(!confirm('Delete?'))return; await col('production').doc(id).delete(); }
+
+function openOpeningStockModal(){
+  var ex = cache.production.find(function(p){return p.type==='opening';});
+  var pipes = ex?(ex.pipes||{}):{};
+  modal('<div class="modal">'+
+    '<div class="modal-hd"><h3 style="font-size:15px;font-weight:700">'+(ex?'Edit':'Set')+' opening stock</h3><button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#94a3b8">&times;</button></div>'+
+    '<div class="modal-bd">'+
+      '<div class="alert-info" style="margin-bottom:1rem">Enter pipes you already have in stock right now. One-time entry.</div>'+
+      '<div class="pipe-grid">'+
+        PIPE_TYPES.map(function(t){
+          return '<div class="pig"><label>'+t+'</label><input type="number" id="os-'+t.replace(/\s+/g,'_')+'" value="'+(pipes[t]||'')+'" min="0" placeholder="0" style="text-align:center;font-size:16px;font-weight:700"></div>';
+        }).join('')+
+      '</div>'+
+    '</div>'+
+    '<div class="modal-ft">'+
+      '<button class="btn" onclick="closeModal()">Cancel</button>'+
+      (ex?'<button class="btn btn-danger" onclick="delOpeningStock(\''+ex.id+'\')">Clear</button>':'')+
+      '<button class="btn btn-primary" onclick="saveOpeningStock(\''+(ex?ex.id:'')+'\')">Save</button>'+
+    '</div>'+
+  '</div>');
+}
+
+async function saveOpeningStock(id){
+  var btn=document.querySelector('.modal-ft .btn-primary');
+  if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  var pipes={};var any=false;
+  PIPE_TYPES.forEach(function(t){var v=parseInt(document.getElementById('os-'+t.replace(/\s+/g,'_')).value||0);if(v>0){pipes[t]=v;any=true;} });
+  if(!any){alert('Enter at least one value');if(btn){btn.disabled=false;btn.textContent='Save';}return;}
+  try{
+    await col('production').doc(id||uid()).set({date:today(),type:'opening',pipes:pipes,notes:'Opening stock'});
+    closeModal();
+  }catch(e){alert('Save failed: '+e.message);if(btn){btn.disabled=false;btn.textContent='Save';} }
+}
+
+async function delOpeningStock(id){if(!confirm('Remove opening stock?'))return;await col('production').doc(id).delete();closeModal();}
+
+
+// ── DISPATCH ─────────────────────────────────────────────────────────────────
+function renderDispatch(){
+  document.getElementById('topbar-action').innerHTML = '';
+  var ready = cache.orders.filter(function(o){return o.status==='ready';});
+  var groups = {};
+  ready.forEach(function(o){
+    var key = (o.route&&o.route.trim()) ? o.route.trim() : (o.address||'Unknown').split(/[\s,]+/).slice(0,2).join(' ');
+    if(!groups[key]) groups[key]=[];
+    groups[key].push(o);
+  });
+  document.getElementById('content').innerHTML =
+    Object.keys(groups).length ?
+    Object.keys(groups).map(function(area){
+      var orders = groups[area];
+      var pipes = {};
+      orders.forEach(function(o){ PIPE_TYPES.forEach(function(t){ pipes[t]=(pipes[t]||0)+(Number(o.pipes&&o.pipes[t]||0)); }); });
+      var pipeSummary = Object.entries(pipes).filter(function(kv){return kv[1]>0;}).map(function(kv){return kv[0]+': '+kv[1];}).join(', ');
+      return '<div class="dispatch-card">'+
+        '<div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'+
+          '<span><i class="ti ti-map-pin" style="color:#1e40af"></i> '+area+'</span>'+
+          '<button class="btn btn-sm btn-success" onclick="markAllDelivered(\''+encodeURIComponent(area)+'\')">Mark all delivered</button>'+
+        '</div>'+
+        '<div style="font-size:12px;color:#64748b;margin-bottom:8px">'+pipeSummary+'</div>'+
+        orders.map(function(o){
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-top:1px solid #f1f5f9;font-size:13px">'+
+            '<span style="font-weight:500">'+o.customer+'</span>'+
+            '<div style="display:flex;gap:6px;align-items:center">'+
+              '<span class="badge '+(o.balance>0?'ag':'gg')+'">'+(o.balance>0?'₹'+fmt(o.balance)+' due':'Paid')+'</span>'+
+              '<button class="btn btn-sm btn-primary" onclick="setStatus(\''+o.id+'\',\'delivered\')">Delivered</button>'+
+              '<button class="btn btn-sm" onclick="setStatus(\''+o.id+'\',\'pending\')">↩</button>'+
+            '</div>'+
+          '</div>';
+        }).join('')+
+      '</div>';
+    }).join('')
+    : '<div class="empty"><i class="ti ti-truck"></i><p>No orders ready for dispatch</p></div>';
+}
+
+async function markAllDelivered(safeArea){
+  var area = decodeURIComponent(safeArea);
+  if(!confirm('Mark all orders for "'+area+'" as delivered?')) return;
+  var batch = db.batch();
+  cache.orders.forEach(function(o){
+    if(o.status==='ready'){
+      var key = (o.route&&o.route.trim()) ? o.route.trim() : (o.address||'Unknown').split(/[\s,]+/).slice(0,2).join(' ');
+      if(key===area) batch.update(col('orders').doc(o.id),{status:'delivered'});
+    }
+  });
+  await batch.commit();
+}
+
+// ── MATERIALS ────────────────────────────────────────────────────────────────
+function getLastSupplier(matId){
+  var key = matId==='steel_wire' ? 'steel_wire' : matId;
+  var last = cache.materials.filter(function(m){return m.material===key&&m.supplier;}).sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
+  return last.length ? last[0].supplier : '';
+}
+
+function renderMaterials(){
   document.getElementById('topbar-action').innerHTML = '<button class="btn btn-primary" onclick="openMatModal()"><i class="ti ti-plus"></i> Record delivery</button>';
   var entries = cache.materials.slice().sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
 
