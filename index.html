@@ -217,6 +217,16 @@ tr:hover td { background:#f8fafc; }
   .topbar { padding:0 1rem; }
   .metric-value { font-size:22px; }
 }
+@media print {
+  .sidebar,.topbar,.bottom-nav,.modal-overlay,.no-print,button { display:none !important; }
+  .main { margin-left:0 !important; padding:0 !important; }
+  .content { padding:0 !important; }
+  body { background:#fff !important; }
+  .card { box-shadow:none !important; border:1px solid #ddd !important; break-inside:avoid; }
+  .grid-2,.grid-3,.grid-4 { grid-template-columns:repeat(2,1fr) !important; }
+  table { font-size:11px; }
+  th,td { padding:4px 8px !important; }
+}
 `;document.head.appendChild(s);})();
 </script>
 </head>
@@ -448,6 +458,97 @@ function closeSidebar() { document.getElementById('sidebar').classList.remove('o
 function col(name)  { return firestoreDb.collection(name); }
 function esc(s)     { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 document.addEventListener('keydown', e => { if(e.key === 'Escape') closeModal(); });
+
+// ── EXPORT ────────────────────────────────────────────────────────────────────
+function downloadCSV(filename, headers, rows) {
+  const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
+  const lines = [headers.map(q).join(','), ...rows.map(r=>r.map(q).join(','))];
+  const blob = new Blob(['﻿'+lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=filename; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1500);
+}
+
+function exportOrders() {
+  const headers = ['Order Date','Customer','Phone','Address','KM','Pipes','Total','Advance','Balance','Payment Mode','Status','Delivery Date','Notes'];
+  const rows = [...cache.orders].sort((a,b)=>((b.orderDate||'')).localeCompare(a.orderDate||'')).map(o=>{
+    const pipes = PIPE_TYPES.filter(t=>(o.pipes||{})[t]>0).map(t=>t+' x'+o.pipes[t]).join('; ');
+    return [o.orderDate||'',o.customer||'',o.phone||'',o.address||'',o.km||'',pipes,o.total||0,o.advance||0,o.balance||0,o.paymentMode||'Cash',o.status||'',o.deliveryDate||'',o.notes||''];
+  });
+  downloadCSV('orders_'+today()+'.csv', headers, rows);
+}
+
+function exportProduction() {
+  const headers = ['Date', ...PIPE_TYPES, 'Total Produced', ...PIPE_TYPES.map(t=>'Reject: '+t), 'Total Rejects', 'Notes'];
+  const rows = [...cache.production].sort((a,b)=>b.date.localeCompare(a.date)).map(p=>{
+    const produced = PIPE_TYPES.map(t=>Number(p.pipes&&p.pipes[t])||0);
+    const rejects  = PIPE_TYPES.map(t=>Number(p.rejects&&p.rejects[t])||0);
+    return [p.date, ...produced, produced.reduce((s,v)=>s+v,0), ...rejects, rejects.reduce((s,v)=>s+v,0), p.notes||''];
+  });
+  downloadCSV('production_'+today()+'.csv', headers, rows);
+}
+
+function exportAttendance() {
+  const dates = [...new Set(cache.attendance.map(a=>a.date))].sort((a,b)=>b.localeCompare(a));
+  const headers = ['Date', ...STAFF];
+  const rows = dates.map(date=>
+    [date, ...STAFF.map(s=>{const r=cache.attendance.find(a=>a.date===date&&a.staff===s); return r?(r.present?'Present':'Absent'):'—';})]
+  );
+  downloadCSV('attendance_'+today()+'.csv', headers, rows);
+}
+
+function exportAdvances() {
+  const headers = ['Date','Staff','Amount','Note'];
+  const rows = [...cache.advances].sort((a,b)=>b.date.localeCompare(a.date)).map(a=>[a.date,a.staff,a.amount||0,a.note||'']);
+  downloadCSV('advances_'+today()+'.csv', headers, rows);
+}
+
+function exportExpenses() {
+  const headers = ['Date','Category','Amount','Note'];
+  const rows = [...cache.expenses].sort((a,b)=>b.date.localeCompare(a.date)).map(e=>[e.date,e.category,e.amount||0,e.note||'']);
+  downloadCSV('expenses_'+today()+'.csv', headers, rows);
+}
+
+function exportPL() {
+  const headers = ['Month','Revenue','Material Cost','Other Expenses','Staff Salaries','Labour Cost','Total Cost','Profit','Margin %'];
+  const rows = [];
+  for(let i=23;i>=0;i--){
+    const d=new Date(new Date().getFullYear(),new Date().getMonth()-i,1);
+    const ms=d.toISOString().slice(0,7);
+    const lbl=d.toLocaleString('en-IN',{month:'long',year:'numeric'});
+    const s=calcMonthProfit(ms);
+    rows.push([lbl,s.revenue,s.matCost,s.expCost,s.staffCost,s.labourCost,s.totalCost,s.profit,s.margin!==null?s.margin.toFixed(1):'']);
+  }
+  downloadCSV('profit_loss_'+today()+'.csv', headers, rows);
+}
+
+function exportPayroll(mon) {
+  const staffCfg = STAFF_PAY_CONFIG;
+  const headers = ['Staff','Period From','Period To','Days Present','Days Absent','Full Salary','Absent Deduction','Earned','Advances','Net Payable','Paid','Remaining'];
+  const rows = STAFF.map(s=>{
+    const cfg=staffCfg[s]||{}; const salary=Number(cfg.salary)||0; const salaryDay=Number(cfg.salaryDay)||1;
+    const period=staffPeriod(salaryDay,mon);
+    let sun=0; for(let d=new Date(period.from);d<=new Date(period.to);d.setDate(d.getDate()+1)){if(d.getDay()===0)sun++;}
+    const wAtt=cache.attendance.filter(a=>a.staff===s&&a.date&&inRange(a.date,period.from,period.to)&&new Date(a.date).getDay()!==0);
+    const absent=wAtt.filter(a=>!a.present).length; const present=wAtt.filter(a=>a.present).length+sun;
+    const total=wAtt.length+sun; const daily=total>0?Math.round(salary/total):0;
+    const earned=salary-daily*absent;
+    const adv=cache.advances.filter(a=>a.staff===s&&a.date&&inRange(a.date,period.from,period.to)).reduce((s,a)=>s+(Number(a.amount)||0),0);
+    const paid=(cache.salary_payments||[]).filter(p=>p.staff===s&&p.month===mon).reduce((s,p)=>s+(Number(p.amount)||0),0);
+    const net=earned-adv;
+    return [s,period.from,period.to,present,absent,salary,daily*absent,earned,adv,net,paid,net-paid];
+  });
+  downloadCSV('payroll_'+mon+'.csv', headers, rows);
+}
+
+function exportLabourPayments() {
+  const headers = ['Date','Type','Amount','Note'];
+  const rows = [...(cache.labour_karchi||[])].sort((a,b)=>b.date.localeCompare(a.date))
+    .map(k=>[k.date, k.type==='settlement'?'Final Settlement':k.type==='partial'?'Partial Payment':'Sunday Karchi', k.amount||0, k.note||'']);
+  downloadCSV('labour_payments_'+today()+'.csv', headers, rows);
+}
+
+function printPage() { window.print(); }
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
 function showLoginScreen() {
@@ -1061,7 +1162,10 @@ function isOverdue(o) {
 // ── ORDERS ────────────────────────────────────────────────────────────────────
 function renderOrders() {
   document.getElementById('topbar-action').innerHTML =
-    `<button class="btn-primary" onclick="openOrderModal()"><i class="ti ti-plus"></i> New order</button>`;
+    `<div style="display:flex;gap:8px">
+      <button class="no-print" onclick="exportOrders()" title="Export to Excel"><i class="ti ti-table-export"></i> Excel</button>
+      <button class="btn-primary no-print" onclick="openOrderModal()"><i class="ti ti-plus"></i> New order</button>
+    </div>`;
   const orders = cache.orders;
   const counts = { pending:orders.filter(o=>o.status==='pending').length, ready:orders.filter(o=>o.status==='ready').length, delivered:orders.filter(o=>o.status==='delivered').length };
   document.getElementById('content').innerHTML = `
@@ -1402,7 +1506,10 @@ function renderProduction(fromDate, toDate) {
   const td2 = toDate   || defaultTo;
 
   document.getElementById('topbar-action').innerHTML =
-    `<button class="btn-primary" onclick="openQuickProdModal()"><i class="ti ti-plus"></i> Log production</button>`;
+    `<div style="display:flex;gap:8px">
+      <button class="no-print" onclick="exportProduction()" title="Export to Excel"><i class="ti ti-table-export"></i> Excel</button>
+      <button class="btn-primary no-print" onclick="openQuickProdModal()"><i class="ti ti-plus"></i> Log production</button>
+    </div>`;
 
   const filtered = allProd.filter(p => p.date >= fd && p.date <= td2);
 
@@ -1814,7 +1921,10 @@ function expNextMonth() {
 
 function renderExpenses() {
   document.getElementById('topbar-action').innerHTML =
-    `<button class="btn-primary" onclick="openExpModal()"><i class="ti ti-plus"></i> Add expense</button>`;
+    `<div style="display:flex;gap:8px">
+      <button class="no-print" onclick="exportExpenses()" title="Export to Excel"><i class="ti ti-table-export"></i> Excel</button>
+      <button class="btn-primary no-print" onclick="openExpModal()"><i class="ti ti-plus"></i> Add expense</button>
+    </div>`;
 
   const isAll      = expFilterMonth === 'all';
   const filterMon  = expActiveMonth();
@@ -2019,7 +2129,11 @@ function calcAllTimeProfit() {
 }
 
 function renderProfit() {
-  document.getElementById('topbar-action').innerHTML = '';
+  document.getElementById('topbar-action').innerHTML =
+    `<div style="display:flex;gap:8px">
+      <button class="no-print" onclick="exportPL()" title="Export to Excel"><i class="ti ti-table-export"></i> Excel</button>
+      <button class="no-print" onclick="printPage()" title="Save as PDF"><i class="ti ti-printer"></i> Print / PDF</button>
+    </div>`;
 
   const isAll      = profitFilterMonth === 'all';
   const filterMon  = profitActiveMonth();
@@ -2207,9 +2321,14 @@ function saveStaffNames() {
 
 function renderStaff() {
   document.getElementById('topbar-action').innerHTML =
-    `<div style="display:flex;gap:8px">
+    `<div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="no-print" onclick="exportAttendance()" title="Export attendance"><i class="ti ti-table-export"></i> Attendance</button>
+      <button class="no-print" onclick="exportAdvances()" title="Export advances"><i class="ti ti-table-export"></i> Advances</button>
+      <button class="no-print" onclick="exportPayroll(payrollMonth||today().slice(0,7))" title="Export payroll"><i class="ti ti-table-export"></i> Payroll</button>
+      <button class="no-print" onclick="exportLabourPayments()" title="Export labour payments"><i class="ti ti-table-export"></i> Labour</button>
+      <button class="no-print" onclick="printPage()" title="Save as PDF"><i class="ti ti-printer"></i> Print</button>
       <button onclick="openEditStaffModal()"><i class="ti ti-users"></i> Edit names</button>
-      <button class="btn-primary" onclick="openAttModal()"><i class="ti ti-calendar"></i> Log attendance</button>
+      <button class="btn-primary no-print" onclick="openAttModal()"><i class="ti ti-calendar"></i> Log attendance</button>
     </div>`;
 
   const overviewPanel = buildStaffOverview();
