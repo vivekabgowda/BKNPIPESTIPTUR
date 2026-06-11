@@ -377,6 +377,7 @@ function bnActive(page) {
 const PIPE_TYPES = ['300mm NP2','450mm NP2','450mm NP3','600mm NP2','600mm NP3','900mm NP2','900mm NP3','1200mm NP2','1200mm Cistern'];
 const DEFAULT_STAFF = ['Driver 1','Driver 2','Helper'];
 let STAFF = JSON.parse(localStorage.getItem('hpf_staff') || 'null') || [...DEFAULT_STAFF];
+let STAFF_PAY_CONFIG = JSON.parse(localStorage.getItem('hpf_staff_config') || '{}'); // { name: {salary, salaryDay} }
 
 // Single-item materials (one qty + one amount per delivery)
 const MAT_SINGLE = [
@@ -568,10 +569,11 @@ function listen(colName, callback) {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function initApp(user) {
-  const [orders, production, attendance, advances, materials, expenses, assign, karchi, staffDoc, openingDoc] = await Promise.all([
+  const [orders, production, attendance, advances, materials, expenses, assign, karchi, staffDoc, payDoc, openingDoc] = await Promise.all([
     getAll('orders'), getAll('production'), getAll('attendance'), getAll('advances'), getAll('materials'), getAll('expenses'), getAssign(),
     getAll('labour_karchi'),
     firestoreDb.collection('meta').doc('staff_config').get().catch(()=>null),
+    firestoreDb.collection('meta').doc('staff_pay_config').get().catch(()=>null),
     firestoreDb.collection('meta').doc('pipe_opening').get().catch(()=>null)
   ]);
 
@@ -580,8 +582,13 @@ async function initApp(user) {
     STAFF = staffDoc.data().names;
     localStorage.setItem('hpf_staff', JSON.stringify(STAFF));
   } else if (STAFF.join(',') !== DEFAULT_STAFF.join(',')) {
-    // First run on this device: push localStorage names to Firestore so phone sees them
     firestoreDb.collection('meta').doc('staff_config').set({ names: STAFF });
+  }
+
+  // Staff pay config (salary + salary day): Firestore is authoritative
+  if (payDoc && payDoc.exists && payDoc.data().config) {
+    STAFF_PAY_CONFIG = payDoc.data().config;
+    localStorage.setItem('hpf_staff_config', JSON.stringify(STAFF_PAY_CONFIG));
   }
 
   const pipe_opening = (openingDoc && openingDoc.exists) ? openingDoc.data() : {};
@@ -599,12 +606,24 @@ async function initApp(user) {
   listen('expenses',       () => { if(['expenses','dashboard','profit'].includes(currentPage)) goto(currentPage,true); });
   listen('labour_karchi',  () => { if(currentPage==='staff') goto(currentPage,true); });
 
-  // Real-time staff name sync: when edited on one device, all devices update
+  // Real-time staff name sync
   firestoreDb.collection('meta').doc('staff_config').onSnapshot(doc => {
     if (doc.exists && doc.data().names && doc.data().names.length) {
       STAFF = doc.data().names;
       localStorage.setItem('hpf_staff', JSON.stringify(STAFF));
       if (currentPage === 'staff') renderStaff();
+    }
+  });
+
+  // Real-time staff pay config sync
+  firestoreDb.collection('meta').doc('staff_pay_config').onSnapshot(doc => {
+    if (doc.exists && doc.data().config) {
+      STAFF_PAY_CONFIG = doc.data().config;
+      localStorage.setItem('hpf_staff_config', JSON.stringify(STAFF_PAY_CONFIG));
+      if (currentPage === 'staff' && currentStaffTab === 'payroll') {
+        const panel = document.getElementById('staff-payroll-panel');
+        if(panel) panel.innerHTML = renderPayrollTab();
+      }
     }
   });
 
@@ -2243,8 +2262,8 @@ function inRange(date, from, to) { return date >= from && date <= to; }
 function renderPayrollTab() {
   const mon = payrollMonth || today().slice(0,7);
 
-  // Staff config: { staffName: { salary, salaryDay } }
-  const staffCfg = JSON.parse(localStorage.getItem('hpf_staff_config') || '{}');
+  // Staff config: { staffName: { salary, salaryDay } } — from Firestore-backed global
+  const staffCfg = STAFF_PAY_CONFIG;
 
   const rows = STAFF.map(s => {
     const cfg      = staffCfg[s] || {};
@@ -2398,7 +2417,9 @@ function saveStaffConfig() {
     const sday = Math.min(28, Math.max(1, parseInt(document.getElementById('sday-'+key)?.value||'1')));
     cfg[s] = { salary: sal||0, salaryDay: sday };
   });
+  STAFF_PAY_CONFIG = cfg;
   localStorage.setItem('hpf_staff_config', JSON.stringify(cfg));
+  firestoreDb.collection('meta').doc('staff_pay_config').set({ config: cfg });
   const panel = document.getElementById('staff-payroll-panel');
   if(panel) panel.innerHTML = renderPayrollTab();
 }
