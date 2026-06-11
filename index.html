@@ -2266,18 +2266,33 @@ function renderPayrollTab() {
   const staffCfg = STAFF_PAY_CONFIG;
 
   const rows = STAFF.map(s => {
-    const cfg      = staffCfg[s] || {};
-    const salary   = Number(cfg.salary) || 0;
-    const salaryDay= Number(cfg.salaryDay) || 1;
-    const period   = staffPeriod(salaryDay, mon);
-    const adv      = cache.advances.filter(a=>a.staff===s&&a.date&&inRange(a.date,period.from,period.to))
-                       .reduce((sum,a)=>sum+(Number(a.amount)||0), 0);
-    const days     = cache.attendance.filter(a=>a.staff===s&&a.present&&a.date&&inRange(a.date,period.from,period.to)).length;
-    const net      = salary - adv;
-    return { name:s, salary, salaryDay, period, adv, net, days };
+    const cfg       = staffCfg[s] || {};
+    const salary    = Number(cfg.salary) || 0;
+    const salaryDay = Number(cfg.salaryDay) || 1;
+    const period    = staffPeriod(salaryDay, mon);
+    // Count Sundays in period — they are paid off days, always "present"
+    let sundaysInPeriod = 0;
+    for(let d = new Date(period.from); d <= new Date(period.to); d.setDate(d.getDate()+1)) {
+      if(d.getDay() === 0) sundaysInPeriod++;
+    }
+    const weekdayAtt  = cache.attendance.filter(a=>a.staff===s&&a.date&&inRange(a.date,period.from,period.to)
+                          && new Date(a.date).getDay() !== 0);
+    const weekdayLogged  = weekdayAtt.length;
+    const weekdaysPresent= weekdayAtt.filter(a=>a.present).length;
+    const daysAbsent     = weekdayAtt.filter(a=>!a.present).length;
+    const totalLogged    = weekdayLogged + sundaysInPeriod;   // Sundays auto-present
+    const daysPresent    = weekdaysPresent + sundaysInPeriod;
+    const dailyRate   = totalLogged > 0 ? Math.round(salary / totalLogged) : 0;
+    const absentDeduction = dailyRate * daysAbsent;
+    const earned      = salary - absentDeduction;
+    const adv         = cache.advances.filter(a=>a.staff===s&&a.date&&inRange(a.date,period.from,period.to))
+                          .reduce((sum,a)=>sum+(Number(a.amount)||0), 0);
+    const net         = earned - adv;
+    return { name:s, salary, salaryDay, period, daysPresent, daysAbsent, totalLogged, dailyRate, absentDeduction, earned, adv, net };
   });
 
   const totalSalary = rows.reduce((s,r)=>s+r.salary, 0);
+  const totalEarned = rows.reduce((s,r)=>s+r.earned, 0);
   const totalAdv    = rows.reduce((s,r)=>s+r.adv, 0);
   const totalNet    = rows.reduce((s,r)=>s+r.net, 0);
 
@@ -2300,27 +2315,38 @@ function renderPayrollTab() {
         <label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px">Staff period (month)</label>
         <input type="month" value="${mon}" onchange="payrollMonth=this.value;document.getElementById('staff-payroll-panel').innerHTML=renderPayrollTab()" style="font-size:13px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:var(--font)">
       </div>
-      <div class="metric" style="flex:1;min-width:110px"><div class="metric-label">Salary total</div><div class="metric-value">₹${fmt(totalSalary)}</div></div>
+      <div class="metric" style="flex:1;min-width:110px"><div class="metric-label">Full salary</div><div class="metric-value">₹${fmt(totalSalary)}</div></div>
+      <div class="metric" style="flex:1;min-width:110px"><div class="metric-label">Earned (after absent)</div><div class="metric-value">₹${fmt(totalEarned)}</div></div>
       <div class="metric" style="flex:1;min-width:110px"><div class="metric-label">Net payable</div><div class="metric-value" style="color:var(--success)">₹${fmt(totalNet)}</div></div>
     </div>
 
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:0.75rem">
-      <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)">Staff wage slips</div>
+      <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)">Staff wage slips
+        <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:8px">Absent days deducted at daily rate</span>
+      </div>
       <div style="overflow-x:auto"><table>
         <thead><tr>
           <th>Staff</th>
           <th>Period</th>
-          <th style="text-align:center">Days</th>
-          <th style="text-align:right">Salary (₹)</th>
-          <th style="text-align:right">Advances (₹)</th>
+          <th style="text-align:center">Present / Logged</th>
+          <th style="text-align:right">Full salary</th>
+          <th style="text-align:right">Absent deduction</th>
+          <th style="text-align:right">Earned</th>
+          <th style="text-align:right">Advances</th>
           <th style="text-align:right">Net payable</th>
         </tr></thead>
         <tbody>
           ${rows.map(r=>`<tr>
             <td style="font-weight:600">${esc(r.name)}</td>
             <td style="font-size:11px;color:var(--muted);white-space:nowrap">${fmtDate(r.period.from)} – ${fmtDate(r.period.to)}</td>
-            <td style="text-align:center">${r.days}</td>
-            <td style="text-align:right;font-weight:600">${r.salary?'₹'+fmt(r.salary):'<span style="color:var(--muted);font-size:11px">not set</span>'}</td>
+            <td style="text-align:center">
+              ${r.totalLogged > 0
+                ? `<span style="color:var(--success);font-weight:600">${r.daysPresent}</span><span style="color:var(--muted);font-size:11px"> / ${r.totalLogged}</span>${r.daysAbsent>0?` <span style="color:var(--danger);font-size:11px">(${r.daysAbsent} absent)</span>`:''}`
+                : `<span style="color:var(--muted);font-size:11px">no data</span>`}
+            </td>
+            <td style="text-align:right">${r.salary?'₹'+fmt(r.salary):'<span style="color:var(--muted);font-size:11px">not set</span>'}</td>
+            <td style="text-align:right;color:var(--danger)">${r.absentDeduction>0?'−₹'+fmt(r.absentDeduction)+' <span style="font-size:10px;color:var(--muted)">(₹'+fmt(r.dailyRate)+'/day)</span>':'—'}</td>
+            <td style="text-align:right;font-weight:600">₹${fmt(r.earned)}</td>
             <td style="text-align:right;color:var(--danger)">${r.adv?'−₹'+fmt(r.adv):'—'}</td>
             <td style="text-align:right">
               <span style="font-weight:700;color:${r.net>=0?'var(--success)':'var(--danger)'}">₹${fmt(Math.abs(r.net))}${r.net<0?' <span style="font-size:10px">(excess)</span>':''}</span>
@@ -2330,6 +2356,8 @@ function renderPayrollTab() {
         <tfoot><tr style="background:var(--bg)">
           <td colspan="3" style="font-weight:700;text-align:right">Total</td>
           <td style="text-align:right;font-weight:700">₹${fmt(totalSalary)}</td>
+          <td style="text-align:right;font-weight:700;color:var(--danger)">−₹${fmt(totalSalary-totalEarned)||'—'}</td>
+          <td style="text-align:right;font-weight:700">₹${fmt(totalEarned)}</td>
           <td style="text-align:right;font-weight:700;color:var(--danger)">${totalAdv?'−₹'+fmt(totalAdv):'—'}</td>
           <td style="text-align:right;font-weight:700">₹${fmt(totalNet)}</td>
         </tr></tfoot>
