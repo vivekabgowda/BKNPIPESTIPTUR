@@ -2858,10 +2858,11 @@ function renderMatDeliveriesTab() {
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:1.25rem">
 
       <!-- Steel Wire summary card — spans 2 columns to show per-size breakdown -->
-      <div class="card" style="margin-bottom:0;grid-column:span 2">
+      <div class="card" style="margin-bottom:0;grid-column:span 2;cursor:pointer;transition:box-shadow 0.15s" onclick="showMatRecords('steel_wire')" onmouseenter="this.style.boxShadow='0 4px 16px rgba(26,107,196,0.15)'" onmouseleave="this.style.boxShadow=''">
         <div style="font-size:13px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px">
           <i class="ti ti-package" style="color:#1a6bc4"></i>Steel Wire
           <span style="font-size:11px;font-weight:400;color:#888">(2.5mm · 4mm · 5mm)</span>
+          <span style="margin-left:auto;font-size:11px;color:#1a6bc4;font-weight:500">Tap to view records <i class="ti ti-chevron-right" style="font-size:10px"></i></span>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
           ${STEEL_WIRE_SIZES.map(sz=>`
@@ -2885,9 +2886,10 @@ function renderMatDeliveriesTab() {
 
       <!-- Single-material cards -->
       ${singleSummary.map(r => `
-        <div class="card" style="margin-bottom:0">
+        <div class="card" style="margin-bottom:0;cursor:pointer;transition:box-shadow 0.15s" onclick="showMatRecords('${r.id}')" onmouseenter="this.style.boxShadow='0 4px 16px rgba(26,107,196,0.15)'" onmouseleave="this.style.boxShadow=''">
           <div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px">
             <i class="ti ti-package" style="color:#1a6bc4;flex-shrink:0"></i>${r.label}
+            <span style="margin-left:auto;font-size:10px;color:#1a6bc4;font-weight:500"><i class="ti ti-chevron-right"></i></span>
           </div>
           <div class="metric" style="padding:8px;margin-bottom:8px">
             <div class="metric-label">Total received</div>
@@ -2983,6 +2985,97 @@ function renderMatDeliveriesTab() {
         </div>`;
       }).join('')}
     </div>`;
+}
+
+function showMatRecords(matId) {
+  const isWire = matId === 'steel_wire';
+  const label  = isWire ? 'Steel Wire' : (MAT_SINGLE.find(r=>r.id===matId)?.label || matId);
+  const unit   = isWire ? 'Kg' : (MAT_SINGLE.find(r=>r.id===matId)?.unit || '');
+  const entries = [...cache.materials]
+    .filter(m => m.material === matId)
+    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+
+  const totalAmt  = entries.reduce((s,m)=>s+(Number(m.totalAmt)||0),0);
+  const totalPaid = entries.reduce((s,m)=>s+(m.payments||[]).reduce((ss,p)=>ss+(Number(p.amt)||0),0),0);
+  const totalBal  = totalAmt - totalPaid;
+
+  const recordsHtml = entries.length ? entries.map(m => {
+    const paid    = (m.payments||[]).reduce((s,p)=>s+(Number(p.amt)||0),0);
+    const balance = (Number(m.totalAmt)||0) - paid;
+    const sizeRows = isWire ? STEEL_WIRE_SIZES.map(sz=>{
+      const s = m.sizes?.[sz.id];
+      if(!s||!s.qty) return '';
+      return `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f0f0ec;font-size:15px">
+        <span style="color:#555">${sz.label}</span>
+        <span style="font-weight:700">${fmt(s.qty)} Kg${s.amt?` <span style="font-weight:400;color:#888;font-size:13px">· ₹${fmt(s.amt)}</span>`:''}</span>
+      </div>`;
+    }).join('') : '';
+    const payRows = (m.payments||[]).length ? [...(m.payments||[])].sort((a,b)=>a.date.localeCompare(b.date)).map((p,i)=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0ec;font-size:14px">
+        <span style="color:#555">${fmtDate(p.date)}${p.note?` <span style="color:#aaa;font-size:12px">· ${esc(p.note)}</span>`:''}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-weight:600;color:#3b8a2a">₹${fmt(p.amt)}</span>
+          <button class="btn-sm btn-danger" style="padding:3px 9px;font-size:12px" onclick="delPayment('${m.id}',${i});showMatRecords('${matId}')">✕</button>
+        </div>
+      </div>`).join('') : '';
+    return `
+    <div style="background:#fff;border-radius:12px;margin-bottom:12px;border:1.5px solid #e8e8e4;overflow:hidden">
+      <div style="padding:14px 16px;background:${balance>0?'#fff8f8':balance===0&&paid>0?'#f6fff4':'#f8f9fc'}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <div>
+            <div style="font-size:17px;font-weight:700;color:#1a1a1a">${fmtDate(m.date)}</div>
+            ${m.supplier?`<div style="font-size:14px;color:#555;margin-top:2px"><i class="ti ti-building-store" style="font-size:13px"></i> ${esc(m.supplier)}</div>`:''}
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn-sm" style="font-size:13px;padding:5px 12px" onclick="openMatModal('${m.id}')">Edit</button>
+            <button class="btn-sm btn-primary" style="font-size:13px;padding:5px 12px" onclick="openPaymentModal('${m.id}')"><i class="ti ti-cash"></i> Pay</button>
+            <button class="btn-sm btn-danger" style="font-size:13px;padding:5px 12px" onclick="delMat('${m.id}')">Del</button>
+          </div>
+        </div>
+      </div>
+      <div style="padding:12px 16px">
+        ${isWire ? sizeRows : `<div style="font-size:16px;font-weight:700;margin-bottom:8px">${fmt(m.qty)} ${unit}</div>`}
+        ${m.totalAmt ? `
+        <div style="display:flex;gap:0;border-radius:8px;overflow:hidden;border:1px solid #e8e8e4;margin-top:8px">
+          <div style="flex:1;padding:10px 12px;text-align:center;background:#fafafa;border-right:1px solid #e8e8e4">
+            <div style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Billed</div>
+            <div style="font-size:16px;font-weight:700;color:#222;margin-top:2px">₹${fmt(m.totalAmt)}</div>
+          </div>
+          <div style="flex:1;padding:10px 12px;text-align:center;background:#fafafa;border-right:1px solid #e8e8e4">
+            <div style="font-size:11px;color:#3b8a2a;font-weight:600;text-transform:uppercase;letter-spacing:.05em">Paid</div>
+            <div style="font-size:16px;font-weight:700;color:#3b8a2a;margin-top:2px">₹${fmt(paid)}</div>
+          </div>
+          <div style="flex:1;padding:10px 12px;text-align:center;background:${balance>0?'#fff5f5':'#f4fff4'}">
+            <div style="font-size:11px;color:${balance>0?'#a02020':'#3b8a2a'};font-weight:600;text-transform:uppercase;letter-spacing:.05em">Balance</div>
+            <div style="font-size:16px;font-weight:700;color:${balance>0?'#a02020':'#3b8a2a'};margin-top:2px">₹${fmt(balance)}</div>
+          </div>
+        </div>` : ''}
+        ${m.note?`<div style="font-size:13px;color:#888;margin-top:8px;padding:6px 10px;background:#f8f9fc;border-radius:6px">${esc(m.note)}</div>`:''}
+        ${payRows ? `
+        <div style="margin-top:10px">
+          <div style="font-size:12px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Payment history</div>
+          ${payRows}
+        </div>` : ''}
+      </div>
+    </div>`;
+  }).join('') : `<div style="text-align:center;padding:3rem 1rem;color:#aaa"><i class="ti ti-package" style="font-size:2.5rem"></i><p style="margin-top:12px;font-size:15px">No deliveries recorded yet</p></div>`;
+
+  modal(`<div class="modal" style="width:100%;max-width:560px;border-radius:16px">
+    <div class="modal-header" style="padding:1rem 1.25rem">
+      <div>
+        <h3 style="font-size:18px;font-weight:700">${label} — Deliveries</h3>
+        ${entries.length ? `<div style="font-size:13px;color:#555;margin-top:2px;font-weight:400">${entries.length} record${entries.length>1?'s':''} &nbsp;·&nbsp; Billed ₹${fmt(totalAmt)} &nbsp;·&nbsp; Paid ₹${fmt(totalPaid)} &nbsp;·&nbsp; <span style="color:${totalBal>0?'#a02020':'#3b8a2a'}">Balance ₹${fmt(totalBal)}</span></div>` : ''}
+      </div>
+      <button onclick="closeModal()" style="border:none;font-size:26px;background:none;cursor:pointer;color:#aaa;padding:0 4px;line-height:1">&times;</button>
+    </div>
+    <div class="modal-body" style="padding:1rem;background:#f4f5f7">
+      ${recordsHtml}
+    </div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button class="btn-primary" onclick="closeModal();openMatModal()"><i class="ti ti-plus"></i> Add delivery</button>
+      <button onclick="closeModal()">Close</button>
+    </div>
+  </div>`);
 }
 
 function renderMatStockTab() {
