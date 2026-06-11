@@ -569,9 +569,10 @@ function listen(colName, callback) {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function initApp(user) {
-  const [orders, production, attendance, advances, materials, expenses, assign, karchi, staffDoc, payDoc, openingDoc] = await Promise.all([
+  const [orders, production, attendance, advances, materials, expenses, assign, karchi, salaryPay, staffDoc, payDoc, openingDoc] = await Promise.all([
     getAll('orders'), getAll('production'), getAll('attendance'), getAll('advances'), getAll('materials'), getAll('expenses'), getAssign(),
     getAll('labour_karchi'),
+    getAll('salary_payments'),
     firestoreDb.collection('meta').doc('staff_config').get().catch(()=>null),
     firestoreDb.collection('meta').doc('staff_pay_config').get().catch(()=>null),
     firestoreDb.collection('meta').doc('pipe_opening').get().catch(()=>null)
@@ -592,7 +593,7 @@ async function initApp(user) {
   }
 
   const pipe_opening = (openingDoc && openingDoc.exists) ? openingDoc.data() : {};
-  cache = { orders, production, attendance, advances, materials, expenses, dispatch_assign: assign, pipe_opening, labour_karchi: karchi };
+  cache = { orders, production, attendance, advances, materials, expenses, dispatch_assign: assign, pipe_opening, labour_karchi: karchi, salary_payments: salaryPay };
 
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -604,7 +605,8 @@ async function initApp(user) {
   listen('advances',   () => { if(currentPage==='staff') goto(currentPage,true); });
   listen('materials',  () => { if(['materials','dashboard','suppliers','profit'].includes(currentPage)) goto(currentPage,true); });
   listen('expenses',       () => { if(['expenses','dashboard','profit'].includes(currentPage)) goto(currentPage,true); });
-  listen('labour_karchi',  () => { if(currentPage==='staff') goto(currentPage,true); });
+  listen('labour_karchi',    () => { if(currentPage==='staff') goto(currentPage,true); });
+  listen('salary_payments',  () => { if(currentPage==='staff'||currentPage==='profit') goto(currentPage,true); });
 
   // Real-time staff name sync
   firestoreDb.collection('meta').doc('staff_config').onSnapshot(doc => {
@@ -1952,6 +1954,35 @@ function profNextMonth() {
   renderProfit();
 }
 
+function calcStaffSalaryCost(monthStr) {
+  // Sum of earned salaries for each staff in monthStr cycle
+  const pieceRates = JSON.parse(localStorage.getItem('hpf_piecerate')||'{}');
+  let staffCost = 0, labourCost = 0;
+  STAFF.forEach(s => {
+    const cfg       = STAFF_PAY_CONFIG[s] || {};
+    const salary    = Number(cfg.salary) || 0;
+    const salaryDay = Number(cfg.salaryDay) || 1;
+    const period    = staffPeriod(salaryDay, monthStr);
+    let sundaysInPeriod = 0;
+    for(let d=new Date(period.from);d<=new Date(period.to);d.setDate(d.getDate()+1)) {
+      if(d.getDay()===0) sundaysInPeriod++;
+    }
+    const weekdayAtt  = (cache.attendance||[]).filter(a=>a.staff===s&&a.date&&inRange(a.date,period.from,period.to)&&new Date(a.date).getDay()!==0);
+    const weekdayLogged = weekdayAtt.length;
+    const daysAbsent    = weekdayAtt.filter(a=>!a.present).length;
+    const totalLogged   = weekdayLogged + sundaysInPeriod;
+    const dailyRate     = totalLogged > 0 ? salary / totalLogged : 0;
+    staffCost += Math.round(salary - dailyRate * daysAbsent);
+  });
+  // Labour piecework cost for month
+  const prod = (cache.production||[]).filter(p=>p.date&&p.date.startsWith(monthStr));
+  labourCost = PIPE_TYPES.reduce((s,t)=>{
+    const qty = prod.reduce((q,p)=>q+(Number(p.pipes&&p.pipes[t])||0),0);
+    return s + qty * (Number(pieceRates[t])||0);
+  },0);
+  return { staffCost: Math.round(staffCost), labourCost: Math.round(labourCost) };
+}
+
 function calcMonthProfit(monthStr) {
   const revenue  = cache.orders
     .filter(o => o.status === 'delivered' && ((o.deliveryDate||o.orderDate)||'').startsWith(monthStr))
@@ -1962,20 +1993,29 @@ function calcMonthProfit(monthStr) {
   const expCost  = cache.expenses
     .filter(e => (e.date||'').startsWith(monthStr))
     .reduce((s,e) => s+(Number(e.amount)||0), 0);
-  const totalCost = matCost + expCost;
+  const { staffCost, labourCost } = calcStaffSalaryCost(monthStr);
+  const totalCost = matCost + expCost + staffCost + labourCost;
   const profit    = revenue - totalCost;
   const margin    = revenue > 0 ? (profit/revenue*100) : null;
-  return { revenue, matCost, expCost, totalCost, profit, margin };
+  return { revenue, matCost, expCost, staffCost, labourCost, totalCost, profit, margin };
 }
 
 function calcAllTimeProfit() {
   const revenue  = cache.orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(Number(o.total)||0),0);
   const matCost  = cache.materials.reduce((s,m)=>s+(Number(m.totalAmt)||0),0);
   const expCost  = cache.expenses.reduce((s,e)=>s+(Number(e.amount)||0),0);
-  const totalCost = matCost + expCost;
+  // All-time: sum monthly staff+labour costs for last 24 months (approximation)
+  let staffCost = 0, labourCost = 0;
+  for(let i=0;i<24;i++){
+    const d=new Date(new Date().getFullYear(),new Date().getMonth()-i,1);
+    const ms=d.toISOString().slice(0,7);
+    const c=calcStaffSalaryCost(ms);
+    staffCost+=c.staffCost; labourCost+=c.labourCost;
+  }
+  const totalCost = matCost + expCost + staffCost + labourCost;
   const profit    = revenue - totalCost;
   const margin    = revenue > 0 ? (profit/revenue*100) : null;
-  return { revenue, matCost, expCost, totalCost, profit, margin };
+  return { revenue, matCost, expCost, staffCost, labourCost, totalCost, profit, margin };
 }
 
 function renderProfit() {
@@ -2036,6 +2076,8 @@ function renderProfit() {
       <td style="padding:8px 12px;font-size:12px;text-align:right;color:var(--success)">₹${fmt(s.revenue)}</td>
       <td style="padding:8px 12px;font-size:12px;text-align:right">₹${fmt(s.matCost)}</td>
       <td style="padding:8px 12px;font-size:12px;text-align:right">₹${fmt(s.expCost)}</td>
+      <td style="padding:8px 12px;font-size:12px;text-align:right">₹${fmt(s.staffCost)}</td>
+      <td style="padding:8px 12px;font-size:12px;text-align:right">₹${fmt(s.labourCost)}</td>
       <td style="padding:8px 12px;font-size:12px;text-align:right;font-weight:600;color:${pColor}">₹${fmt(s.profit)}</td>
       <td style="padding:8px 12px;font-size:12px;text-align:right;color:${pColor}">${s.margin!==null?s.margin.toFixed(1)+'%':'—'}</td>
     </tr>`);
@@ -2056,6 +2098,12 @@ function renderProfit() {
       <div class="metric"><div class="metric-label">Material cost</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.matCost)}</div></div>
       <div class="metric"><div class="metric-label">Expenses</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.expCost)}</div></div>
       <div class="metric"><div class="metric-label">Total cost</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.totalCost)}</div></div>
+    </div>
+    <div class="grid-4" style="margin-bottom:0.75rem">
+      <div class="metric"><div class="metric-label">Staff salaries</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.staffCost)}</div></div>
+      <div class="metric"><div class="metric-label">Labour (piecework)</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.labourCost)}</div></div>
+      <div class="metric"><div class="metric-label" style="color:transparent">—</div><div class="metric-value"></div></div>
+      <div class="metric"><div class="metric-label" style="color:transparent">—</div><div class="metric-value"></div></div>
     </div>
     <div style="display:flex;gap:12px;margin-bottom:1rem;flex-wrap:wrap">
       <div class="metric" style="flex:2;min-width:150px;background:${profitBg}">
@@ -2101,6 +2149,11 @@ function renderProfit() {
               <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c.color}"></span>${c.label}</span>
               <span style="font-weight:600">₹${fmt(expBycat[c.id])}</span>
             </div>`).join('')||`<div style="font-size:12px;color:var(--muted);padding:4px 0">No expenses this period</div>`}
+          ${stats.staffCost > 0 || stats.labourCost > 0 ? `
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:10px 0 6px">Labour</div>
+          ${stats.staffCost > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-light);font-size:13px"><span>Staff salaries</span><span style="font-weight:600">₹${fmt(stats.staffCost)}</span></div>` : ''}
+          ${stats.labourCost > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-light);font-size:13px"><span>Jharkhand labour</span><span style="font-weight:600">₹${fmt(stats.labourCost)}</span></div>` : ''}
+          ` : ''}
         ` : `<div class="empty-state" style="padding:1.5rem 0"><i class="ti ti-receipt"></i><p>No costs recorded this period</p></div>`}
       </div>
     </div>
@@ -2112,6 +2165,8 @@ function renderProfit() {
           <th style="padding:8px 12px;text-align:right">Revenue</th>
           <th style="padding:8px 12px;text-align:right">Materials</th>
           <th style="padding:8px 12px;text-align:right">Expenses</th>
+          <th style="padding:8px 12px;text-align:right">Staff</th>
+          <th style="padding:8px 12px;text-align:right">Labour</th>
           <th style="padding:8px 12px;text-align:right">Profit</th>
           <th style="padding:8px 12px;text-align:right">Margin</th>
         </tr></thead>
@@ -2287,8 +2342,11 @@ function renderPayrollTab() {
     const earned      = salary - absentDeduction;
     const adv         = cache.advances.filter(a=>a.staff===s&&a.date&&inRange(a.date,period.from,period.to))
                           .reduce((sum,a)=>sum+(Number(a.amount)||0), 0);
+    const paid        = (cache.salary_payments||[]).filter(p=>p.staff===s&&p.month===mon)
+                          .reduce((sum,p)=>sum+(Number(p.amount)||0), 0);
     const net         = earned - adv;
-    return { name:s, salary, salaryDay, period, daysPresent, daysAbsent, totalLogged, dailyRate, absentDeduction, earned, adv, net };
+    const remaining   = net - paid;
+    return { name:s, salary, salaryDay, period, daysPresent, daysAbsent, totalLogged, dailyRate, absentDeduction, earned, adv, net, paid, remaining };
   });
 
   const totalSalary = rows.reduce((s,r)=>s+r.salary, 0);
@@ -2334,6 +2392,9 @@ function renderPayrollTab() {
           <th style="text-align:right">Earned</th>
           <th style="text-align:right">Advances</th>
           <th style="text-align:right">Net payable</th>
+          <th style="text-align:right">Paid</th>
+          <th style="text-align:right">Remaining</th>
+          <th></th>
         </tr></thead>
         <tbody>
           ${rows.map(r=>`<tr>
@@ -2348,18 +2409,22 @@ function renderPayrollTab() {
             <td style="text-align:right;color:var(--danger)">${r.absentDeduction>0?'−₹'+fmt(r.absentDeduction)+' <span style="font-size:10px;color:var(--muted)">(₹'+fmt(r.dailyRate)+'/day)</span>':'—'}</td>
             <td style="text-align:right;font-weight:600">₹${fmt(r.earned)}</td>
             <td style="text-align:right;color:var(--danger)">${r.adv?'−₹'+fmt(r.adv):'—'}</td>
-            <td style="text-align:right">
-              <span style="font-weight:700;color:${r.net>=0?'var(--success)':'var(--danger)'}">₹${fmt(Math.abs(r.net))}${r.net<0?' <span style="font-size:10px">(excess)</span>':''}</span>
+            <td style="text-align:right;font-weight:700;color:${r.net>=0?'var(--success)':'var(--danger)'}">₹${fmt(Math.abs(r.net))}${r.net<0?' <span style="font-size:10px">(excess)</span>':''}</td>
+            <td style="text-align:right;color:var(--success)">${r.paid?'₹'+fmt(r.paid):'—'}</td>
+            <td style="text-align:right;font-weight:700;color:${r.remaining>0?'var(--warning)':r.remaining<0?'var(--danger)':'var(--success)'}">
+              ${r.remaining===0?'<span style="color:var(--success);font-size:12px">✓ Settled</span>':'₹'+fmt(Math.abs(r.remaining))+(r.remaining<0?' <span style="font-size:10px">(excess)</span>':'')}
             </td>
+            <td><button class="btn-sm btn-primary" data-staff="${esc(r.name)}" data-amount="${r.remaining>0?r.remaining:0}" data-month="${mon}" onclick="openSalaryPayModal(this.dataset.staff,this.dataset.amount,this.dataset.month)">Pay</button></td>
           </tr>`).join('')}
         </tbody>
         <tfoot><tr style="background:var(--bg)">
           <td colspan="3" style="font-weight:700;text-align:right">Total</td>
           <td style="text-align:right;font-weight:700">₹${fmt(totalSalary)}</td>
-          <td style="text-align:right;font-weight:700;color:var(--danger)">−₹${fmt(totalSalary-totalEarned)||'—'}</td>
+          <td style="text-align:right;font-weight:700;color:var(--danger)">−₹${fmt(totalSalary-totalEarned)}</td>
           <td style="text-align:right;font-weight:700">₹${fmt(totalEarned)}</td>
           <td style="text-align:right;font-weight:700;color:var(--danger)">${totalAdv?'−₹'+fmt(totalAdv):'—'}</td>
           <td style="text-align:right;font-weight:700">₹${fmt(totalNet)}</td>
+          <td colspan="3"></td>
         </tr></tfoot>
       </table></div>
     </div>
@@ -2405,7 +2470,7 @@ function renderPayrollTab() {
     <div class="card" style="padding:0;overflow:hidden">
       <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
         <span>Jharkhand labour</span>
-        <button class="btn-sm btn-primary" onclick="openKarchiModal()">+ Record karchi</button>
+        <button class="btn-sm btn-primary" onclick="openKarchiModal()">+ Record payment</button>
       </div>
       <div style="padding:0.875rem 1.25rem;display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;border-bottom:1px solid var(--border-light)">
         <div class="form-group" style="margin:0">
@@ -2416,22 +2481,26 @@ function renderPayrollTab() {
           <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">To</label>
           <input type="date" value="${lTo}" onchange="labourPayTo=this.value;document.getElementById('staff-payroll-panel').innerHTML=renderPayrollTab()" style="font-size:13px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font)">
         </div>
-        <div class="metric" style="flex:1;min-width:100px"><div class="metric-label">Pipes (${grandProd})</div><div class="metric-value" style="font-size:14px">${labourCost?'₹'+fmt(Math.round(labourCost)):'—'}</div></div>
-        <div class="metric" style="flex:1;min-width:100px"><div class="metric-label">Karchi paid</div><div class="metric-value" style="font-size:14px;color:var(--danger)">₹${fmt(karchiTotal)}</div></div>
-        <div class="metric" style="flex:1;min-width:100px"><div class="metric-label">Net to settle</div><div class="metric-value" style="font-size:16px;font-weight:700;color:${labourNet>=0?'var(--success)':'var(--danger)'}">${labourCost?'₹'+fmt(Math.abs(labourNet))+(labourNet<0?' (excess)':''):'—'}</div></div>
+        <div class="metric" style="flex:1;min-width:90px"><div class="metric-label">Earned (${grandProd} pipes)</div><div class="metric-value" style="font-size:14px;color:var(--success)">${labourCost?'₹'+fmt(Math.round(labourCost)):'—'}</div></div>
+        <div class="metric" style="flex:1;min-width:90px"><div class="metric-label">Paid (karchi+settle)</div><div class="metric-value" style="font-size:14px;color:var(--danger)">₹${fmt(karchiTotal)}</div></div>
+        <div class="metric" style="flex:1;min-width:90px"><div class="metric-label">Net to settle</div><div class="metric-value" style="font-size:16px;font-weight:700;color:${labourNet>=0?'var(--warning)':' var(--danger)'}">${labourCost?'₹'+fmt(Math.abs(labourNet))+(labourNet<0?' (overpaid)':''):'—'}</div></div>
       </div>
       ${karchiRows.length ? `
       <table>
-        <thead><tr><th>Date</th><th style="text-align:right">Amount (₹)</th><th>Note</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Type</th><th style="text-align:right">Amount (₹)</th><th>Note</th><th></th></tr></thead>
         <tbody>
-          ${karchiRows.map(k=>`<tr>
-            <td style="white-space:nowrap">${fmtDate(k.date)}</td>
-            <td style="text-align:right;font-weight:600">₹${fmt(k.amount)}</td>
-            <td style="color:var(--muted);font-size:12px">${esc(k.note||'—')}</td>
-            <td><button class="btn-sm btn-danger" onclick="delKarchi('${k.id}')">Del</button></td>
-          </tr>`).join('')}
+          ${karchiRows.map(k=>{
+            const typeLabel = k.type==='settlement'?'Settlement':k.type==='partial'?'Partial':'Karchi';
+            const typeColor = k.type==='settlement'?'var(--success)':k.type==='partial'?'var(--warning)':'var(--muted)';
+            return `<tr>
+              <td style="white-space:nowrap">${fmtDate(k.date)}</td>
+              <td><span style="font-size:11px;font-weight:600;color:${typeColor}">${typeLabel}</span></td>
+              <td style="text-align:right;font-weight:600">₹${fmt(k.amount)}</td>
+              <td style="color:var(--muted);font-size:12px">${esc(k.note||'—')}</td>
+              <td><button class="btn-sm btn-danger" onclick="delKarchi('${k.id}')">Del</button></td>
+            </tr>`;}).join('')}
         </tbody>
-      </table>` : `<div class="empty-state" style="padding:1.5rem">No karchi in this range</div>`}
+      </table>` : `<div class="empty-state" style="padding:1.5rem">No payments in this range</div>`}
       ${!labourCost&&grandProd===0?`<div style="padding:10px 1.25rem;font-size:12px;color:var(--muted);border-top:1px solid var(--border-light)">No production in this date range.</div>`:''}
       ${!labourCost&&grandProd>0?`<div style="padding:10px 1.25rem;font-size:12px;color:var(--muted);border-top:1px solid var(--border-light)">Set piecework rates in Production → Log tab to calculate earnings.</div>`:''}
     </div>`;
@@ -2455,7 +2524,7 @@ function saveStaffConfig() {
 function openKarchiModal() {
   modal(`<div class="modal">
     <div class="modal-header">
-      <h3 style="font-size:15px;font-weight:600">Record karchi — Jharkhand labour</h3>
+      <h3 style="font-size:15px;font-weight:600">Record payment — Jharkhand labour</h3>
       <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
     </div>
     <div class="modal-body">
@@ -2463,7 +2532,16 @@ function openKarchiModal() {
         <div class="form-group"><label>Date</label><input type="date" id="karchi-date" value="${today()}"></div>
         <div class="form-group"><label>Amount (₹)</label><input type="number" id="karchi-amt" min="0" inputmode="numeric" placeholder="e.g. 5000"></div>
       </div>
-      <div class="form-group"><label>Note (optional)</label><input type="text" id="karchi-note" placeholder="e.g. Sunday karchi"></div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Payment type</label>
+          <select id="karchi-type" style="font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;width:100%;font-family:var(--font)">
+            <option value="karchi">Sunday Karchi</option>
+            <option value="partial">Partial Payment</option>
+            <option value="settlement">Final Settlement</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Note (optional)</label><input type="text" id="karchi-note" placeholder="e.g. week 2 karchi"></div>
+      </div>
     </div>
     <div class="modal-footer">
       <button onclick="closeModal()">Cancel</button>
@@ -2475,9 +2553,39 @@ function openKarchiModal() {
 async function saveKarchi() {
   const date = document.getElementById('karchi-date')?.value;
   const amt  = parseInt(document.getElementById('karchi-amt')?.value || '0');
+  const type = document.getElementById('karchi-type')?.value || 'karchi';
   const note = document.getElementById('karchi-note')?.value.trim() || '';
   if(!date || amt <= 0) { alert('Date and amount required'); return; }
-  await col('labour_karchi').doc(uid()).set({ date, amount: amt, note });
+  await col('labour_karchi').doc(uid()).set({ date, amount: amt, type, note });
+  closeModal();
+}
+
+function openSalaryPayModal(staffName, suggestedAmt, month) {
+  modal(`<div class="modal">
+    <div class="modal-header">
+      <h3 style="font-size:15px;font-weight:600">Pay salary — ${esc(staffName)}</h3>
+      <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Date</label><input type="date" id="spay-date" value="${today()}"></div>
+        <div class="form-group"><label>Amount (₹)</label><input type="number" id="spay-amt" min="0" inputmode="numeric" value="${suggestedAmt||''}" placeholder="Amount paid"></div>
+      </div>
+      <div class="form-group"><label>Note (optional)</label><input type="text" id="spay-note" placeholder="e.g. cash payment"></div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveSalaryPay('${esc(staffName)}','${month}')">Mark paid</button>
+    </div>
+  </div>`);
+}
+
+async function saveSalaryPay(staffName, month) {
+  const date = document.getElementById('spay-date')?.value;
+  const amt  = parseInt(document.getElementById('spay-amt')?.value || '0');
+  const note = document.getElementById('spay-note')?.value.trim() || '';
+  if(!date || amt <= 0) { alert('Date and amount required'); return; }
+  await col('salary_payments').doc(uid()).set({ staff: staffName, month, amount: amt, date, note });
   closeModal();
 }
 
