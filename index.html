@@ -436,6 +436,7 @@ let currentProdTab = 'log';
 let prodFilterFrom = '';
 let prodFilterTo   = '';
 let currentMatTab   = 'deliveries';
+let expandedMats    = new Set();
 let currentRatesMat = MAT_SINGLE[0].id;
 let currentSupTab   = 'overview';
 let expFilterMonth  = '';     // '' = current month, 'all' = all time
@@ -2828,6 +2829,16 @@ function renderMaterials() {
     </div>`;
 }
 function switchMatTab(tab) { currentMatTab = tab; renderMaterials(); }
+function toggleMatExpand(matId) {
+  if (expandedMats.has(matId)) { expandedMats.delete(matId); } else { expandedMats.add(matId); }
+  const panel  = document.getElementById('matacc-'+matId);
+  const header = panel?.previousElementSibling;
+  if (!panel) return;
+  panel.style.display = expandedMats.has(matId) ? 'block' : 'none';
+  if (header) header.style.background = expandedMats.has(matId) ? '#f0f5ff' : '#fff';
+  const icon = header?.querySelector('.ti-chevron-up,.ti-chevron-down');
+  if (icon) { icon.className = icon.className.replace(/ti-chevron-(up|down)/, expandedMats.has(matId)?'ti-chevron-up':'ti-chevron-down'); }
+}
 
 function renderMatDeliveriesTab() {
   const entries = [...cache.materials].sort((a,b) => (b.date||'').localeCompare(a.date||''));
@@ -2854,137 +2865,113 @@ function renderMatDeliveriesTab() {
     return { ...r, totalQty, totalAmt, totalPaid, balance: totalAmt - totalPaid };
   });
 
-  return `
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:1.25rem">
-
-      <!-- Steel Wire summary card — spans 2 columns to show per-size breakdown -->
-      <div class="card" style="margin-bottom:0;grid-column:span 2;cursor:pointer;transition:box-shadow 0.15s" onclick="showMatRecords('steel_wire')" onmouseenter="this.style.boxShadow='0 4px 16px rgba(26,107,196,0.15)'" onmouseleave="this.style.boxShadow=''">
-        <div style="font-size:13px;font-weight:700;margin-bottom:10px;display:flex;align-items:center;gap:6px">
-          <i class="ti ti-package" style="color:#1a6bc4"></i>Steel Wire
-          <span style="font-size:11px;font-weight:400;color:#888">(2.5mm · 4mm · 5mm)</span>
-          <span style="margin-left:auto;font-size:11px;color:#1a6bc4;font-weight:500">Tap to view records <i class="ti ti-chevron-right" style="font-size:10px"></i></span>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-          ${STEEL_WIRE_SIZES.map(sz=>`
-            <div class="metric" style="flex:1;min-width:70px;padding:8px;text-align:center">
-              <div class="metric-label">${sz.label}</div>
-              <div class="metric-value" style="font-size:16px">${fmt(wireSizeQtys[sz.id]||0)} <span style="font-size:10px;font-weight:400;color:#888">Kg</span></div>
-            </div>`).join('')}
-        </div>
-        ${wireTotalAmt > 0 ? `
-        <div style="font-size:12px;display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid #f0f0ec">
-          <span style="color:#555">Billed</span><span style="font-weight:600">₹${fmt(wireTotalAmt)}</span>
-        </div>
-        <div style="font-size:12px;display:flex;justify-content:space-between;padding:4px 0">
-          <span style="color:#3b8a2a">Paid</span><span style="font-weight:600;color:#3b8a2a">₹${fmt(wireTotalPaid)}</span>
-        </div>
-        <div style="font-size:13px;display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #e8e8e4;margin-top:2px">
-          <span style="font-weight:600;color:${wireBalance>0?'#a02020':'#3b8a2a'}">Balance</span>
-          <span style="font-weight:700;color:${wireBalance>0?'#a02020':'#3b8a2a'}">₹${fmt(wireBalance)}</span>
-        </div>` : `<div style="font-size:12px;color:#aaa;padding:4px 0">No billing yet</div>`}
-      </div>
-
-      <!-- Single-material cards -->
-      ${singleSummary.map(r => `
-        <div class="card" style="margin-bottom:0;cursor:pointer;transition:box-shadow 0.15s" onclick="showMatRecords('${r.id}')" onmouseenter="this.style.boxShadow='0 4px 16px rgba(26,107,196,0.15)'" onmouseleave="this.style.boxShadow=''">
-          <div style="font-size:13px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:6px">
-            <i class="ti ti-package" style="color:#1a6bc4;flex-shrink:0"></i>${r.label}
-            <span style="margin-left:auto;font-size:10px;color:#1a6bc4;font-weight:500"><i class="ti ti-chevron-right"></i></span>
-          </div>
-          <div class="metric" style="padding:8px;margin-bottom:8px">
-            <div class="metric-label">Total received</div>
-            <div class="metric-value" style="font-size:16px">${fmt(r.totalQty)} <span style="font-size:10px;font-weight:400;color:#888">${r.unit}</span></div>
-          </div>
-          ${r.totalAmt > 0 ? `
-          <div style="font-size:12px;display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid #f0f0ec">
-            <span style="color:#555">Billed</span><span style="font-weight:600">₹${fmt(r.totalAmt)}</span>
-          </div>
-          <div style="font-size:12px;display:flex;justify-content:space-between;padding:4px 0">
-            <span style="color:#3b8a2a">Paid</span><span style="font-weight:600;color:#3b8a2a">₹${fmt(r.totalPaid)}</span>
-          </div>
-          <div style="font-size:13px;display:flex;justify-content:space-between;padding:6px 0;border-top:1px solid #e8e8e4;margin-top:2px">
-            <span style="font-weight:600;color:${r.balance>0?'#a02020':'#3b8a2a'}">Balance</span>
-            <span style="font-weight:700;color:${r.balance>0?'#a02020':'#3b8a2a'}">₹${fmt(r.balance)}</span>
-          </div>` : `<div style="font-size:12px;color:#aaa;padding:4px 0">No billing yet</div>`}
-        </div>`).join('')}
-    </div>
-
-    <!-- Delivery records — tabbed by material -->
-    <div class="card" style="padding:0;overflow:hidden">
-      <div style="padding:1rem 1.25rem 0;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)">
-        Delivery records
-      </div>
-      <!-- Material filter tabs -->
-      <div style="display:flex;gap:0;overflow-x:auto;border-bottom:2px solid var(--border);padding:0 1rem;background:var(--bg)">
-        ${[{id:'steel_wire',label:'Steel Wire'}, ...MAT_SINGLE].map((r,i) => {
-          const count = entries.filter(m=>m.material===r.id).length;
-          return `<button onclick="filterMatTab('${r.id}')" id="mattab-${r.id}"
-            style="flex-shrink:0;padding:10px 16px;font-size:13px;font-weight:600;border:none;background:none;cursor:pointer;
-            border-bottom:2px solid ${i===0?'var(--brand-mid)':'transparent'};margin-bottom:-2px;
-            color:${i===0?'var(--brand)':'var(--muted)'};font-family:var(--font);transition:all 0.15s">
-            ${r.label} ${count>0?`<span style="font-size:11px;background:${i===0?'var(--brand-light)':'var(--border-light)'};color:${i===0?'var(--brand)':'var(--muted)'};padding:1px 6px;border-radius:999px;margin-left:4px">${count}</span>`:''}
-          </button>`;
-        }).join('')}
-      </div>
-      <!-- Per-material content panels -->
-      ${[{id:'steel_wire',label:'Steel Wire',isWire:true}, ...MAT_SINGLE.map(r=>({...r,isWire:false}))].map((r,i) => {
-        const matEntries = entries.filter(m => m.material === r.id);
-        return `<div id="matpanel-${r.id}" style="display:${i===0?'block':'none'}">
-          ${matEntries.length ? matEntries.map(m => {
-            const paid    = (m.payments||[]).reduce((s,p)=>s+(Number(p.amt)||0),0);
-            const balance = (Number(m.totalAmt)||0) - paid;
-            return `
-            <div style="padding:1rem 1.25rem;border-bottom:1px solid var(--border-light)">
-              <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:8px">
-                <div style="flex:1;min-width:0">
-                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
-                    <span style="font-weight:700;font-size:13px;color:var(--neutral-2)">${fmtDate(m.date)}</span>
-                    ${m.supplier?`<span style="font-size:12px;color:var(--muted)"><i class="ti ti-building-store" style="font-size:11px"></i> ${esc(m.supplier)}</span>`:''}
-                  </div>
-                  ${r.isWire ? `
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
-                      ${STEEL_WIRE_SIZES.map(sz => {
-                        const s = m.sizes?.[sz.id];
-                        if(!s || !s.qty) return '';
-                        return `<div style="background:var(--brand-light);border-radius:6px;padding:5px 10px;font-size:12px">
-                          <span style="color:var(--muted)">${sz.label}:</span>
-                          <span style="font-weight:700;color:var(--neutral)"> ${fmt(s.qty)} Kg</span>
-                          ${s.amt?`<span style="color:var(--muted)"> · ₹${fmt(s.amt)}</span>`:''}
-                        </div>`;
-                      }).join('')}
-                    </div>` :
-                    `<div style="margin-bottom:6px"><span class="badge badge-blue">${fmt(m.qty)} ${r.unit||''}</span></div>`
-                  }
-                  ${m.totalAmt ? `<div style="font-size:13px;display:flex;gap:14px;flex-wrap:wrap">
-                    <span style="color:var(--muted)">Total: <strong style="color:var(--neutral)">₹${fmt(m.totalAmt)}</strong></span>
-                    <span style="color:var(--success)">Paid: <strong>₹${fmt(paid)}</strong></span>
-                    <span style="color:${balance>0?'var(--danger)':'var(--success)'};font-weight:600">Balance: ₹${fmt(balance)}</span>
-                  </div>` : ''}
-                  ${m.note?`<div style="font-size:12px;color:var(--muted);margin-top:4px">${esc(m.note)}</div>`:''}
-                </div>
-                <div style="display:flex;gap:6px;align-items:flex-start;flex-shrink:0">
-                  <button class="btn-sm" onclick="openMatModal('${m.id}')">Edit</button>
-                  <button class="btn-sm btn-primary" onclick="openPaymentModal('${m.id}')"><i class="ti ti-cash"></i> Pay</button>
-                  <button class="btn-sm btn-danger" onclick="delMat('${m.id}')">Del</button>
-                </div>
-              </div>
-              ${(m.payments||[]).length ? `
-              <div style="margin-top:10px;background:var(--bg);border-radius:8px;padding:8px 12px;border:1px solid var(--border-light)">
-                <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Payments</div>
-                ${[...(m.payments||[])].sort((a,b)=>a.date.localeCompare(b.date)).map((p,i)=>`
-                  <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid var(--border-light);font-size:13px">
-                    <span style="color:var(--muted)">${fmtDate(p.date)}${p.note?' · <span style="color:var(--muted-2);font-size:12px">'+esc(p.note)+'</span>':''}</span>
-                    <div style="display:flex;align-items:center;gap:8px">
-                      <span style="font-weight:600;color:var(--success)">₹${fmt(p.amt)}</span>
-                      <button class="btn-sm btn-danger" style="padding:2px 7px;font-size:11px" onclick="delPayment('${m.id}',${i})">✕</button>
-                    </div>
-                  </div>`).join('')}
-              </div>` : ''}
-            </div>`;
-          }).join('') : `<div class="empty-state" style="padding:2.5rem 1rem"><i class="ti ti-package"></i><p>No ${r.label} deliveries yet</p></div>`}
+  // Build per-material records HTML (reused in accordion expand)
+  function matRecordsHtml(r, matEntries) {
+    if (!matEntries.length) return `<div style="padding:1.5rem;text-align:center;color:#aaa;font-size:14px"><i class="ti ti-package" style="font-size:2rem;display:block;margin-bottom:8px"></i>No deliveries recorded yet</div>`;
+    return matEntries.map(m => {
+      const paid    = (m.payments||[]).reduce((s,p)=>s+(Number(p.amt)||0),0);
+      const balance = (Number(m.totalAmt)||0) - paid;
+      const sizeRows = r.isWire ? STEEL_WIRE_SIZES.map(sz=>{
+        const s = m.sizes?.[sz.id];
+        if(!s||!s.qty) return '';
+        return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f0f0ec;font-size:15px">
+          <span style="color:#555">${sz.label}</span>
+          <span style="font-weight:700">${fmt(s.qty)} Kg${s.amt?` <span style="font-weight:400;color:#888;font-size:13px">· ₹${fmt(s.amt)}</span>`:''}</span>
         </div>`;
-      }).join('')}
+      }).join('') : '';
+      const payRows = (m.payments||[]).length ? [...(m.payments||[])].sort((a,b)=>a.date.localeCompare(b.date)).map((p,pi)=>`
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #f0f0ec;font-size:14px">
+          <span style="color:#555">${fmtDate(p.date)}${p.note?` · <span style="color:#aaa;font-size:12px">${esc(p.note)}</span>`:''}</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-weight:600;color:#3b8a2a">₹${fmt(p.amt)}</span>
+            <button class="btn-sm btn-danger" style="padding:3px 9px;font-size:12px" onclick="delPayment('${m.id}',${pi})">✕</button>
+          </div>
+        </div>`).join('') : '';
+      return `
+      <div style="background:#fff;border-radius:10px;margin-bottom:10px;border:1.5px solid #e8e8e4;overflow:hidden">
+        <div style="padding:12px 14px;background:${balance>0?'#fff8f8':paid>0?'#f6fff4':'#f8f9fc'}">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+            <div>
+              <div style="font-size:17px;font-weight:700;color:#1a1a1a">${fmtDate(m.date)}</div>
+              ${m.supplier?`<div style="font-size:14px;color:#555;margin-top:2px"><i class="ti ti-building-store" style="font-size:13px"></i> ${esc(m.supplier)}</div>`:''}
+            </div>
+            <div style="display:flex;gap:6px;flex-shrink:0">
+              <button class="btn-sm" style="font-size:13px;padding:5px 11px" onclick="openMatModal('${m.id}')">Edit</button>
+              <button class="btn-sm btn-primary" style="font-size:13px;padding:5px 11px" onclick="openPaymentModal('${m.id}')"><i class="ti ti-cash"></i> Pay</button>
+              <button class="btn-sm btn-danger" style="font-size:13px;padding:5px 11px" onclick="delMat('${m.id}')">Del</button>
+            </div>
+          </div>
+        </div>
+        <div style="padding:10px 14px">
+          ${r.isWire ? sizeRows : `<div style="font-size:16px;font-weight:700;margin-bottom:6px">${fmt(m.qty)} ${r.unit||''}</div>`}
+          ${m.totalAmt ? `
+          <div style="display:flex;border-radius:8px;overflow:hidden;border:1px solid #e8e8e4;margin-top:8px">
+            <div style="flex:1;padding:9px 10px;text-align:center;background:#fafafa;border-right:1px solid #e8e8e4">
+              <div style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase">Billed</div>
+              <div style="font-size:16px;font-weight:700;color:#222;margin-top:2px">₹${fmt(m.totalAmt)}</div>
+            </div>
+            <div style="flex:1;padding:9px 10px;text-align:center;background:#fafafa;border-right:1px solid #e8e8e4">
+              <div style="font-size:11px;color:#3b8a2a;font-weight:600;text-transform:uppercase">Paid</div>
+              <div style="font-size:16px;font-weight:700;color:#3b8a2a;margin-top:2px">₹${fmt(paid)}</div>
+            </div>
+            <div style="flex:1;padding:9px 10px;text-align:center;background:${balance>0?'#fff5f5':'#f4fff4'}">
+              <div style="font-size:11px;color:${balance>0?'#a02020':'#3b8a2a'};font-weight:600;text-transform:uppercase">Balance</div>
+              <div style="font-size:16px;font-weight:700;color:${balance>0?'#a02020':'#3b8a2a'};margin-top:2px">₹${fmt(balance)}</div>
+            </div>
+          </div>` : ''}
+          ${m.note?`<div style="font-size:13px;color:#888;margin-top:8px;padding:6px 10px;background:#f8f9fc;border-radius:6px">${esc(m.note)}</div>`:''}
+          ${payRows?`<div style="margin-top:10px">
+            <div style="font-size:12px;color:#888;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">Payment history</div>
+            ${payRows}
+          </div>`:''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Build accordion items for each material
+  const allMats = [{id:'steel_wire',label:'Steel Wire',isWire:true}, ...MAT_SINGLE.map(r=>({...r,isWire:false}))];
+
+  const accordionItems = allMats.map(r => {
+    const matEntries = entries.filter(m => m.material === r.id);
+    const totalAmt   = matEntries.reduce((s,m)=>s+(Number(m.totalAmt)||0),0);
+    const totalPaid  = matEntries.reduce((s,m)=>s+(m.payments||[]).reduce((ss,p)=>ss+(Number(p.amt)||0),0),0);
+    const totalBal   = totalAmt - totalPaid;
+    const isOpen     = expandedMats.has(r.id);
+    const count      = matEntries.length;
+
+    // Summary line shown in header
+    let summaryHtml = '';
+    if (r.isWire) {
+      summaryHtml = STEEL_WIRE_SIZES.map(sz=>`<span style="font-size:13px;color:#555">${sz.label}: <strong>${fmt(wireSizeQtys[sz.id]||0)} Kg</strong></span>`).join(' &nbsp;·&nbsp; ');
+    } else {
+      const s = singleSummary.find(x=>x.id===r.id);
+      summaryHtml = `<span style="font-size:13px;color:#555">Total: <strong>${fmt(s?.totalQty||0)} ${r.unit}</strong></span>`;
+    }
+
+    return `
+    <div class="card" style="margin-bottom:10px;padding:0;overflow:hidden">
+      <!-- Tappable header -->
+      <div onclick="toggleMatExpand('${r.id}')" style="padding:14px 16px;cursor:pointer;display:flex;align-items:center;gap:10px;user-select:none;background:${isOpen?'#f0f5ff':'#fff'}">
+        <i class="ti ti-package" style="color:#1a6bc4;font-size:18px;flex-shrink:0"></i>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:15px;font-weight:700;color:#1a1a1a">${r.label}${r.isWire?'<span style="font-size:12px;font-weight:400;color:#888;margin-left:6px">(2.5mm · 4mm · 5mm)</span>':''}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
+            ${summaryHtml}
+            ${totalAmt>0?`&nbsp;·&nbsp; <span style="font-size:13px;color:${totalBal>0?'#a02020':'#3b8a2a'}">Balance: <strong>₹${fmt(totalBal)}</strong></span>`:''}
+            ${count>0?`<span style="font-size:12px;background:#e8edf7;color:#1a6bc4;padding:1px 8px;border-radius:999px;font-weight:600">${count} record${count>1?'s':''}</span>`:''}
+          </div>
+        </div>
+        <i class="ti ti-chevron-${isOpen?'up':'down'}" style="color:#1a6bc4;font-size:18px;flex-shrink:0;transition:transform 0.2s"></i>
+      </div>
+      <!-- Expandable records -->
+      <div id="matacc-${r.id}" style="display:${isOpen?'block':'none'};border-top:1.5px solid #e8edf7;padding:12px;background:#f4f5f7">
+        ${matRecordsHtml(r, matEntries)}
+      </div>
     </div>`;
+  }).join('');
+
+  return accordionItems;
 }
 
 function showMatRecords(matId) {
