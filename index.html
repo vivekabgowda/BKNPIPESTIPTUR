@@ -408,6 +408,8 @@ const RAW_MATERIALS = [
   { id:'steel_wire', label:'Steel Wire', unit:'Kg', isWire:true },
 ];
 
+const SHOP_SUPPLIERS = ['Manjunatha Automobiles', 'Barath Traders'];
+
 const EXPENSE_CATS = [
   { id:'diesel',      label:'Diesel',      icon:'droplet', color:'#d97706', bg:'#fef3c7' },
   { id:'electricity', label:'Electricity', icon:'bolt',    color:'#7c3aed', bg:'#ede9fe' },
@@ -438,7 +440,7 @@ let prodFilterTo   = '';
 let currentMatTab   = 'deliveries';
 let expandedMats    = new Set();
 let currentRatesMat = MAT_SINGLE[0].id;
-let currentSupTab   = 'overview';
+let currentSupTab   = 'shops';
 let expFilterMonth  = '';     // '' = current month, 'all' = all time
 let currentExpCat   = 'all';
 let profitFilterMonth = '';   // '' = current month, 'all' = all time
@@ -511,14 +513,14 @@ function exportExpenses() {
 }
 
 function exportPL() {
-  const headers = ['Month','Revenue','Material Cost','Other Expenses','Staff Salaries','Labour Cost','Total Cost','Profit','Margin %'];
+  const headers = ['Month','Revenue','Material Cost','Other Expenses','Shop Purchases','Staff Salaries','Labour Cost','Total Cost','Profit','Margin %'];
   const rows = [];
   for(let i=23;i>=0;i--){
     const d=new Date(new Date().getFullYear(),new Date().getMonth()-i,1);
     const ms=d.toISOString().slice(0,7);
     const lbl=d.toLocaleString('en-IN',{month:'long',year:'numeric'});
     const s=calcMonthProfit(ms);
-    rows.push([lbl,s.revenue,s.matCost,s.expCost,s.staffCost,s.labourCost,s.totalCost,s.profit,s.margin!==null?s.margin.toFixed(1):'']);
+    rows.push([lbl,s.revenue,s.matCost,s.expCost,s.shopCost,s.staffCost,s.labourCost,s.totalCost,s.profit,s.margin!==null?s.margin.toFixed(1):'']);
   }
   downloadCSV('profit_loss_'+today()+'.csv', headers, rows);
 }
@@ -671,14 +673,19 @@ function listen(colName, callback) {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function initApp(user) {
-  const [orders, production, attendance, advances, materials, expenses, assign, karchi, salaryPay, staffDoc, payDoc, openingDoc, matOpeningDoc] = await Promise.all([
+  const [orders, production, attendance, advances, materials, expenses, assign, karchi, salaryPay, shopExp, shopPay, staffDoc, payDoc, openingDoc, matOpeningDoc, consumeRatesDoc, pipeRatesDoc, piecerateDoc] = await Promise.all([
     getAll('orders'), getAll('production'), getAll('attendance'), getAll('advances'), getAll('materials'), getAll('expenses'), getAssign(),
     getAll('labour_karchi'),
     getAll('salary_payments'),
+    getAll('shop_expenses'),
+    getAll('shop_payments'),
     firestoreDb.collection('meta').doc('staff_config').get().catch(()=>null),
     firestoreDb.collection('meta').doc('staff_pay_config').get().catch(()=>null),
     firestoreDb.collection('meta').doc('pipe_opening').get().catch(()=>null),
-    firestoreDb.collection('meta').doc('mat_opening').get().catch(()=>null)
+    firestoreDb.collection('meta').doc('mat_opening').get().catch(()=>null),
+    firestoreDb.collection('meta').doc('consume_rates').get().catch(()=>null),
+    firestoreDb.collection('meta').doc('pipe_rates').get().catch(()=>null),
+    firestoreDb.collection('meta').doc('piecerate').get().catch(()=>null)
   ]);
 
   // Staff names: Firestore is authoritative (syncs across devices)
@@ -697,7 +704,25 @@ async function initApp(user) {
 
   const pipe_opening = (openingDoc && openingDoc.exists) ? openingDoc.data() : {};
   const mat_opening  = (matOpeningDoc && matOpeningDoc.exists) ? matOpeningDoc.data() : {};
-  cache = { orders, production, attendance, advances, materials, expenses, dispatch_assign: assign, pipe_opening, mat_opening, labour_karchi: karchi, salary_payments: salaryPay };
+
+  // Rates: Firestore is authoritative; migrate from localStorage on first run
+  let consume_rates = (consumeRatesDoc && consumeRatesDoc.exists) ? consumeRatesDoc.data() : null;
+  if (!consume_rates) {
+    consume_rates = JSON.parse(localStorage.getItem('hpf_consume_rates') || '{}');
+    if (Object.keys(consume_rates).length) firestoreDb.collection('meta').doc('consume_rates').set(consume_rates);
+  }
+  let pipe_rates = (pipeRatesDoc && pipeRatesDoc.exists) ? pipeRatesDoc.data() : null;
+  if (!pipe_rates) {
+    pipe_rates = JSON.parse(localStorage.getItem('hpf_pipe_rates') || '{}');
+    if (Object.keys(pipe_rates).length) firestoreDb.collection('meta').doc('pipe_rates').set(pipe_rates);
+  }
+  let piecerate = (piecerateDoc && piecerateDoc.exists) ? piecerateDoc.data() : null;
+  if (!piecerate) {
+    piecerate = JSON.parse(localStorage.getItem('hpf_piecerate') || '{}');
+    if (Object.keys(piecerate).length) firestoreDb.collection('meta').doc('piecerate').set(piecerate);
+  }
+
+  cache = { orders, production, attendance, advances, materials, expenses, dispatch_assign: assign, pipe_opening, mat_opening, labour_karchi: karchi, salary_payments: salaryPay, consume_rates, pipe_rates, piecerate, shop_expenses: shopExp, shop_payments: shopPay };
 
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -709,6 +734,8 @@ async function initApp(user) {
   listen('advances',   () => { if(currentPage==='staff') goto(currentPage,true); });
   listen('materials',  () => { if(['materials','dashboard','suppliers','profit'].includes(currentPage)) goto(currentPage,true); });
   listen('expenses',       () => { if(['expenses','dashboard','profit'].includes(currentPage)) goto(currentPage,true); });
+  listen('shop_expenses',  () => { if(['suppliers','dashboard','profit'].includes(currentPage)) goto(currentPage,true); });
+  listen('shop_payments',  () => { if(['suppliers','dashboard'].includes(currentPage)) goto(currentPage,true); });
   listen('labour_karchi',    () => { if(currentPage==='staff') goto(currentPage,true); });
   listen('salary_payments',  () => { if(currentPage==='staff'||currentPage==='profit') goto(currentPage,true); });
 
@@ -1122,12 +1149,36 @@ function renderDashboard() {
       const totalOut = payables.filter(m=>m.balance>0).reduce((s,m)=>s+m.balance,0);
       if (!totalOut) return '';
       return `<div class="card">
-        <div class="card-title">Supplier payables <button class="btn-sm" onclick="goto('suppliers')">Details</button></div>
+        <div class="card-title">Material supplier payables <button class="btn-sm" onclick="goto('suppliers')">Details</button></div>
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           <div class="metric" style="flex:1;min-width:100px"><div class="metric-label">Total outstanding</div><div class="metric-value" style="font-size:16px;color:#a02020">₹${fmt(totalOut)}</div></div>
           <div class="metric" style="flex:1;min-width:100px"><div class="metric-label">Overdue</div><div class="metric-value" style="font-size:16px;color:${overdueItems.length?'var(--danger)':'var(--success)'}">₹${fmt(overdueItems.reduce((s,m)=>s+m.balance,0))}</div></div>
           <div class="metric" style="flex:1;min-width:100px"><div class="metric-label">Due this week</div><div class="metric-value" style="font-size:16px;color:${dueWeekItems.length?'var(--warning)':'var(--success)'}">₹${fmt(dueWeekItems.reduce((s,m)=>s+m.balance,0))}</div></div>
         </div>
+      </div>`;
+    })()}
+    ${(() => {
+      const shopExps = cache.shop_expenses || [];
+      const shopPays = cache.shop_payments || [];
+      const shopRows = SHOP_SUPPLIERS.map(s => {
+        const tot = shopExps.filter(e=>e.supplier===s).reduce((sum,e)=>sum+(Number(e.amount)||0),0);
+        const pai = shopPays.filter(p=>p.supplier===s).reduce((sum,p)=>sum+(Number(p.amount)||0),0);
+        const bal = tot - pai;
+        return `<div class="metric" style="flex:1;min-width:120px">
+          <div class="metric-label" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(s)}</div>
+          <div class="metric-value" style="font-size:15px;color:${bal>0?'#a02020':'var(--success)'}">₹${fmt(bal)}</div>
+          <div style="font-size:11px;color:var(--muted-2);margin-top:3px">of ₹${fmt(tot)} purchased</div>
+        </div>`;
+      }).join('');
+      const totalShopBal = SHOP_SUPPLIERS.reduce((sum,s)=>{
+        const tot=shopExps.filter(e=>e.supplier===s).reduce((ss,e)=>ss+(Number(e.amount)||0),0);
+        const pai=shopPays.filter(p=>p.supplier===s).reduce((ss,p)=>ss+(Number(p.amount)||0),0);
+        return sum+(tot-pai);
+      },0);
+      if(!totalShopBal && !shopExps.length) return '';
+      return `<div class="card">
+        <div class="card-title">Shop balances (Manjunatha &amp; Barath) <button class="btn-sm" onclick="goto('suppliers');switchSupTab('shops')">Details</button></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">${shopRows}</div>
       </div>`;
     })()}
     ${(() => {
@@ -1417,7 +1468,7 @@ function recalcBalance() {
   if(bal) bal.value = Math.max(0, total - advance);
 }
 function autoCalcOrderTotal() {
-  const rates = JSON.parse(localStorage.getItem('hpf_pipe_rates') || '{}');
+  const rates = cache.pipe_rates || {};
   const delivRate = parseFloat(localStorage.getItem('hpf_delivery_rate') || '0');
   const hasRates = Object.keys(rates).length > 0;
   if (!hasRates) return;
@@ -1521,7 +1572,7 @@ function renderProduction(fromDate, toDate) {
   filtered.forEach(p=>PIPE_TYPES.forEach(t=>{ totals[t]+=(Number(p.pipes&&p.pipes[t])||0); }));
   const grandTotal = PIPE_TYPES.reduce((s,t)=>s+totals[t],0);
 
-  const rates = JSON.parse(localStorage.getItem('hpf_piecerate')||'{}');
+  const rates = cache.piecerate || {};
 
   const logPanel = `
     <div class="card">
@@ -1619,9 +1670,10 @@ function switchProdTab(tab) {
   renderProduction(prodFilterFrom || undefined, prodFilterTo || undefined);
 }
 function savePieceRate(pipeType, rate, fd, td2) {
-  const rates = JSON.parse(localStorage.getItem('hpf_piecerate')||'{}');
+  const rates = cache.piecerate || {};
   rates[pipeType] = parseFloat(rate)||0;
-  localStorage.setItem('hpf_piecerate', JSON.stringify(rates));
+  cache.piecerate = rates;
+  firestoreDb.collection('meta').doc('piecerate').set(rates);
   renderProduction(fd, td2);
 }
 function prevMonthStart() {
@@ -1715,7 +1767,7 @@ function renderStockTab() {
 // ── MATERIAL STOCK ─────────────────────────────────────────────────────────────
 function calcMaterialStock() {
   const thresholds = JSON.parse(localStorage.getItem('hpf_mat_thresholds') || '{}');
-  const rates      = JSON.parse(localStorage.getItem('hpf_consume_rates')  || '{}');
+  const rates      = cache.consume_rates || {};
   const opening    = cache.mat_opening || {};
   const fromDate   = opening._from_date || '';  // only count records on/after this date
   const pipeTotals = {};
@@ -1753,10 +1805,11 @@ function saveMaterialThreshold(matId, value) {
 }
 
 function saveConsumeRate(pipeType, matId, value) {
-  const rates = JSON.parse(localStorage.getItem('hpf_consume_rates') || '{}');
+  const rates = cache.consume_rates || {};
   if (!rates[pipeType]) rates[pipeType] = {};
   rates[pipeType][matId] = Math.max(0, parseFloat(value) || 0);
-  localStorage.setItem('hpf_consume_rates', JSON.stringify(rates));
+  cache.consume_rates = rates;
+  firestoreDb.collection('meta').doc('consume_rates').set(rates);
   const panel = document.getElementById('mat-rates-panel');
   if (panel) panel.innerHTML = renderMatRatesTab();
 }
@@ -2074,7 +2127,7 @@ function profNextMonth() {
 
 function calcStaffSalaryCost(monthStr) {
   // Sum of earned salaries for each staff in monthStr cycle
-  const pieceRates = JSON.parse(localStorage.getItem('hpf_piecerate')||'{}');
+  const pieceRates = cache.piecerate || {};
   let staffCost = 0, labourCost = 0;
   STAFF.forEach(s => {
     const cfg       = STAFF_PAY_CONFIG[s] || {};
@@ -2111,17 +2164,21 @@ function calcMonthProfit(monthStr) {
   const expCost  = cache.expenses
     .filter(e => (e.date||'').startsWith(monthStr))
     .reduce((s,e) => s+(Number(e.amount)||0), 0);
+  const shopCost = (cache.shop_expenses||[])
+    .filter(e => (e.date||'').startsWith(monthStr))
+    .reduce((s,e) => s+(Number(e.amount)||0), 0);
   const { staffCost, labourCost } = calcStaffSalaryCost(monthStr);
-  const totalCost = matCost + expCost + staffCost + labourCost;
+  const totalCost = matCost + expCost + shopCost + staffCost + labourCost;
   const profit    = revenue - totalCost;
   const margin    = revenue > 0 ? (profit/revenue*100) : null;
-  return { revenue, matCost, expCost, staffCost, labourCost, totalCost, profit, margin };
+  return { revenue, matCost, expCost, shopCost, staffCost, labourCost, totalCost, profit, margin };
 }
 
 function calcAllTimeProfit() {
   const revenue  = cache.orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(Number(o.total)||0),0);
   const matCost  = cache.materials.reduce((s,m)=>s+(Number(m.totalAmt)||0),0);
   const expCost  = cache.expenses.reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const shopCost = (cache.shop_expenses||[]).reduce((s,e)=>s+(Number(e.amount)||0),0);
   // All-time: sum monthly staff+labour costs for last 24 months (approximation)
   let staffCost = 0, labourCost = 0;
   for(let i=0;i<24;i++){
@@ -2130,10 +2187,10 @@ function calcAllTimeProfit() {
     const c=calcStaffSalaryCost(ms);
     staffCost+=c.staffCost; labourCost+=c.labourCost;
   }
-  const totalCost = matCost + expCost + staffCost + labourCost;
+  const totalCost = matCost + expCost + shopCost + staffCost + labourCost;
   const profit    = revenue - totalCost;
   const margin    = revenue > 0 ? (profit/revenue*100) : null;
-  return { revenue, matCost, expCost, staffCost, labourCost, totalCost, profit, margin };
+  return { revenue, matCost, expCost, shopCost, staffCost, labourCost, totalCost, profit, margin };
 }
 
 function renderProfit() {
@@ -2198,6 +2255,7 @@ function renderProfit() {
       <td style="padding:8px 12px;font-size:12px;text-align:right;color:var(--success)">₹${fmt(s.revenue)}</td>
       <td style="padding:8px 12px;font-size:12px;text-align:right">₹${fmt(s.matCost)}</td>
       <td style="padding:8px 12px;font-size:12px;text-align:right">₹${fmt(s.expCost)}</td>
+      <td style="padding:8px 12px;font-size:12px;text-align:right">₹${fmt(s.shopCost)}</td>
       <td style="padding:8px 12px;font-size:12px;text-align:right">₹${fmt(s.staffCost)}</td>
       <td style="padding:8px 12px;font-size:12px;text-align:right">₹${fmt(s.labourCost)}</td>
       <td style="padding:8px 12px;font-size:12px;text-align:right;font-weight:600;color:${pColor}">₹${fmt(s.profit)}</td>
@@ -2222,9 +2280,9 @@ function renderProfit() {
       <div class="metric"><div class="metric-label">Total cost</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.totalCost)}</div></div>
     </div>
     <div class="grid-4" style="margin-bottom:0.75rem">
+      <div class="metric"><div class="metric-label">Shop purchases</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.shopCost)}</div><div style="font-size:10px;color:var(--muted-2);margin-top:3px">Manjunatha &amp; Barath</div></div>
       <div class="metric"><div class="metric-label">Staff salaries</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.staffCost)}</div></div>
       <div class="metric"><div class="metric-label">Labour (piecework)</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.labourCost)}</div></div>
-      <div class="metric"><div class="metric-label" style="color:transparent">—</div><div class="metric-value"></div></div>
       <div class="metric"><div class="metric-label" style="color:transparent">—</div><div class="metric-value"></div></div>
     </div>
     <div style="display:flex;gap:12px;margin-bottom:1rem;flex-wrap:wrap">
@@ -2271,6 +2329,14 @@ function renderProfit() {
               <span style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${c.color}"></span>${c.label}</span>
               <span style="font-weight:600">₹${fmt(expBycat[c.id])}</span>
             </div>`).join('')||`<div style="font-size:12px;color:var(--muted);padding:4px 0">No expenses this period</div>`}
+          ${stats.shopCost > 0 ? `
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:10px 0 6px">Shop purchases</div>
+          ${SHOP_SUPPLIERS.map(s => {
+            const periodShopExps = isAll ? (cache.shop_expenses||[]).filter(e=>e.supplier===s) : (cache.shop_expenses||[]).filter(e=>e.supplier===s&&(e.date||'').startsWith(filterMon));
+            const amt = periodShopExps.reduce((sum,e)=>sum+(Number(e.amount)||0),0);
+            return amt > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-light);font-size:13px"><span>${esc(s)}</span><span style="font-weight:600">₹${fmt(amt)}</span></div>` : '';
+          }).join('')}
+          ` : ''}
           ${stats.staffCost > 0 || stats.labourCost > 0 ? `
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:10px 0 6px">Labour</div>
           ${stats.staffCost > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-light);font-size:13px"><span>Staff salaries</span><span style="font-weight:600">₹${fmt(stats.staffCost)}</span></div>` : ''}
@@ -2287,6 +2353,7 @@ function renderProfit() {
           <th style="padding:8px 12px;text-align:right">Revenue</th>
           <th style="padding:8px 12px;text-align:right">Materials</th>
           <th style="padding:8px 12px;text-align:right">Expenses</th>
+          <th style="padding:8px 12px;text-align:right">Shops</th>
           <th style="padding:8px 12px;text-align:right">Staff</th>
           <th style="padding:8px 12px;text-align:right">Labour</th>
           <th style="padding:8px 12px;text-align:right">Profit</th>
@@ -2488,7 +2555,7 @@ function renderPayrollTab() {
   const pipeTotals = {};
   PIPE_TYPES.forEach(t => { pipeTotals[t] = lProd.reduce((s,p)=>s+(Number(p.pipes&&p.pipes[t])||0),0); });
   const grandProd     = PIPE_TYPES.reduce((s,t)=>s+pipeTotals[t],0);
-  const pieceRates    = JSON.parse(localStorage.getItem('hpf_piecerate')||'{}');
+  const pieceRates    = cache.piecerate || {};
   const labourCost    = PIPE_TYPES.reduce((s,t)=>s+(pipeTotals[t]||0)*(Number(pieceRates[t])||0),0);
   const karchiRows    = (cache.labour_karchi||[]).filter(k=>k.date&&inRange(k.date,lFrom,lTo)).sort((a,b)=>b.date.localeCompare(a.date));
   const karchiTotal   = karchiRows.reduce((s,k)=>s+(Number(k.amount)||0),0);
@@ -2807,6 +2874,13 @@ function getLastSupplier(matId) {
     .filter(m => m.material === matId && m.supplier)
     .sort((a,b) => (b.date||'').localeCompare(a.date||''));
   return last[0]?.supplier || '';
+}
+
+function getLastRate(matId) {
+  const last = [...cache.materials]
+    .filter(m => m.material === matId && m.rate)
+    .sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  return last[0]?.rate || '';
 }
 
 function renderMaterials() {
@@ -3154,7 +3228,7 @@ function renderMatStockTab() {
 }
 
 function renderMatRatesTab() {
-  const rates   = JSON.parse(localStorage.getItem('hpf_consume_rates') || '{}');
+  const rates   = cache.consume_rates || {};
   const matMeta = [
     ...MAT_SINGLE,
     ...STEEL_WIRE_SIZES.map(sz => ({id:sz.id, label:'Wire '+sz.label, unit:sz.unit}))
@@ -3277,7 +3351,7 @@ function openMatModal(editId) {
           </div>
           <div class="form-group" id="mat-rate-group" style="${MAT_SINGLE.find(r=>r.id===defCat)?.rateField?'':'display:none'}">
             <label>Rate per Ton (₹)</label>
-            <input type="number" id="mat-rate" min="0" step="1" inputmode="numeric" placeholder="0" value="${existing?.rate||''}" oninput="onMatCalc()">
+            <input type="number" id="mat-rate" min="0" step="1" inputmode="numeric" placeholder="0" value="${existing?.rate||(!editId?getLastRate(defCat):'')||''}" oninput="onMatCalc()">
           </div>
         </div>
       </div>
@@ -3318,6 +3392,10 @@ function onMatCategoryChange() {
     if(unitLbl && mat) unitLbl.textContent = '('+mat.unit+')';
     const rg = document.getElementById('mat-rate-group');
     if(rg) rg.style.display = mat?.rateField ? '' : 'none';
+    if(mat?.rateField) {
+      const rateEl = document.getElementById('mat-rate');
+      if(rateEl && !rateEl.value) { rateEl.value = getLastRate(cat); onMatCalc(); }
+    }
     const aa = document.getElementById('mat-amt-auto');
     if(aa) aa.textContent = '';
   }
@@ -3560,10 +3638,12 @@ function renderSuppliers() {
       <div class="metric"><div class="metric-label">Due this month</div><div class="metric-value" style="font-size:17px">₹${fmt(dueThisMonth)}</div></div>
     </div>
     <div class="tab-bar">
-      <button class="tab ${currentSupTab==='overview'?'active':''}" onclick="switchSupTab('overview')">Overview</button>
+      <button class="tab ${currentSupTab==='shops'?'active':''}"    onclick="switchSupTab('shops')">Shops</button>
+      <button class="tab ${currentSupTab==='overview'?'active':''}" onclick="switchSupTab('overview')">Materials</button>
       <button class="tab ${currentSupTab==='ledger'?'active':''}"   onclick="switchSupTab('ledger')">Ledger</button>
       <button class="tab ${currentSupTab==='terms'?'active':''}"    onclick="switchSupTab('terms')">Terms</button>
     </div>
+    <div id="sup-shops-panel"    style="display:${currentSupTab==='shops'?'block':'none'}">${currentSupTab==='shops'?renderShopsTab():''}</div>
     <div id="sup-overview-panel" style="display:${currentSupTab==='overview'?'block':'none'}">${currentSupTab==='overview'?renderSupOverview(items,t,weekEnd):''}
     </div>
     <div id="sup-ledger-panel"   style="display:${currentSupTab==='ledger'?'block':'none'}">${currentSupTab==='ledger'?renderSupLedger(items,t):''}</div>
@@ -3713,10 +3793,203 @@ async function delMat(id) {
   await col('materials').doc(id).delete();
 }
 
+// ── SHOP SUPPLIERS ────────────────────────────────────────────────────────────
+function renderShopsTab() {
+  const expenses = cache.shop_expenses || [];
+  const payments = cache.shop_payments || [];
+
+  return SHOP_SUPPLIERS.map(supplier => {
+    const supExp   = expenses.filter(e => e.supplier === supplier);
+    const supPay   = payments.filter(p => p.supplier === supplier);
+    const totalExp  = supExp.reduce((s, e) => s + (Number(e.amount)||0), 0);
+    const totalPaid = supPay.reduce((s, p) => s + (Number(p.amount)||0), 0);
+    const balance   = totalExp - totalPaid;
+    const balColor  = balance > 0 ? '#a02020' : 'var(--success)';
+
+    const allTx = [
+      ...supExp.map(e => ({ ...e, _type: 'expense' })),
+      ...supPay.map(p => ({ ...p, _type: 'payment' }))
+    ].sort((a, b) => (b.date||'').localeCompare(a.date||''));
+
+    const rows = allTx.map(tx => {
+      if (tx._type === 'expense') {
+        return `<tr>
+          <td style="padding:9px 12px;font-size:12px;color:var(--muted)">${fmtDate(tx.date)}</td>
+          <td style="padding:9px 12px"><span class="badge ${tx.category==='lorry'?'badge-amber':'badge-blue'}" style="font-size:10px">${tx.category==='lorry'?'Lorry':'Factory'}</span></td>
+          <td style="padding:9px 12px;font-size:13px;font-weight:500">${esc(tx.item||'—')}</td>
+          <td style="padding:9px 12px;font-size:12px;color:var(--muted)">${esc(tx.description||'')}</td>
+          <td style="padding:9px 12px;font-size:13px;text-align:right;color:#a02020;font-weight:600">−₹${fmt(tx.amount)}</td>
+          <td style="padding:9px 12px;text-align:right">
+            <button class="btn-sm btn-danger" style="padding:3px 8px" onclick="delShopExpense('${esc(tx.id)}')"><i class="ti ti-trash" style="font-size:12px"></i></button>
+          </td>
+        </tr>`;
+      } else {
+        return `<tr>
+          <td style="padding:9px 12px;font-size:12px;color:var(--muted)">${fmtDate(tx.date)}</td>
+          <td style="padding:9px 12px"><span class="badge badge-green" style="font-size:10px">Payment</span></td>
+          <td style="padding:9px 12px;font-size:13px;font-weight:500" colspan="2">${esc(tx.note||'—')}</td>
+          <td style="padding:9px 12px;font-size:13px;text-align:right;color:var(--success);font-weight:600">+₹${fmt(tx.amount)}</td>
+          <td style="padding:9px 12px;text-align:right">
+            <button class="btn-sm btn-danger" style="padding:3px 8px" onclick="delShopPayment('${esc(tx.id)}')"><i class="ti ti-trash" style="font-size:12px"></i></button>
+          </td>
+        </tr>`;
+      }
+    }).join('');
+
+    return `<div class="card" style="padding:0;overflow:hidden;margin-bottom:0.75rem">
+      <div style="padding:0.875rem 1.25rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border-light)">
+        <div>
+          <div style="font-weight:700;font-size:15px">${esc(supplier)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">Factory &amp; lorry items on credit</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div style="text-align:right">
+            <div style="font-size:12px;color:var(--muted)">Purchased ₹${fmt(totalExp)} &nbsp;·&nbsp; Paid ₹${fmt(totalPaid)}</div>
+            <div style="font-size:17px;font-weight:700;color:${balColor}">Balance ₹${fmt(balance)}</div>
+          </div>
+          <div style="display:flex;gap:6px">
+            <button class="btn-sm btn-primary" onclick="openShopExpenseModal('${esc(supplier)}')"><i class="ti ti-plus"></i> Add Expense</button>
+            <button class="btn-sm btn-success" onclick="openShopPaymentModal('${esc(supplier)}')"><i class="ti ti-cash"></i> Pay</button>
+          </div>
+        </div>
+      </div>
+      ${allTx.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:480px">
+        <thead><tr style="background:var(--bg);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">
+          <th style="padding:6px 12px;text-align:left">Date</th>
+          <th style="padding:6px 12px;text-align:left">Type</th>
+          <th style="padding:6px 12px;text-align:left">Item / Product</th>
+          <th style="padding:6px 12px;text-align:left">Note</th>
+          <th style="padding:6px 12px;text-align:right">Amount</th>
+          <th style="padding:6px 12px"></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>` : `<div style="padding:1rem 1.25rem;font-size:13px;color:var(--muted-2)">No transactions yet. Use <strong>Add Expense</strong> to record a purchase.</div>`}
+    </div>`;
+  }).join('');
+}
+
+function openShopExpenseModal(supplier) {
+  modal(`<div class="modal">
+    <div class="modal-header">
+      <h3>Add Expense — ${esc(supplier)}</h3>
+      <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Date</label>
+          <input type="date" id="shexp-date" value="${today()}">
+        </div>
+        <div class="form-group"><label>Category</label>
+          <select id="shexp-cat">
+            <option value="factory">Factory items</option>
+            <option value="lorry">Lorry items</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label>Item / Product name</label>
+        <input type="text" id="shexp-item" placeholder="e.g. Wheel bearing, V-belt, oil filter…">
+      </div>
+      <div class="form-group"><label>Note <span style="font-size:11px;color:#aaa">(optional)</span></label>
+        <input type="text" id="shexp-desc" placeholder="Any extra details">
+      </div>
+      <div class="form-group"><label>Amount (₹)</label>
+        <input type="number" id="shexp-amt" min="0" placeholder="0" inputmode="numeric">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveShopExpense('${esc(supplier)}')">Save</button>
+    </div>
+  </div>`);
+  setTimeout(()=>document.getElementById('shexp-item')?.focus(), 50);
+}
+
+async function saveShopExpense(supplier) {
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if(btn) { btn.disabled=true; btn.textContent='Saving…'; }
+  const date = document.getElementById('shexp-date').value;
+  const cat  = document.getElementById('shexp-cat').value;
+  const item = document.getElementById('shexp-item').value.trim();
+  const desc = document.getElementById('shexp-desc').value.trim();
+  const amt  = parseFloat(document.getElementById('shexp-amt').value||0);
+  if(!item) { alert('Enter item / product name'); if(btn){btn.disabled=false;btn.textContent='Save';} return; }
+  if(!amt || amt <= 0) { alert('Enter an amount'); if(btn){btn.disabled=false;btn.textContent='Save';} return; }
+  try {
+    await col('shop_expenses').add({ date, supplier, category: cat, item, description: desc, amount: amt });
+    closeModal();
+  } catch(e) {
+    alert('Save failed: '+e.message);
+    if(btn){btn.disabled=false;btn.textContent='Save';}
+  }
+}
+
+function openShopPaymentModal(supplier) {
+  const exps  = (cache.shop_expenses||[]).filter(e=>e.supplier===supplier);
+  const pays  = (cache.shop_payments||[]).filter(p=>p.supplier===supplier);
+  const total = exps.reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const paid  = pays.reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const bal   = total - paid;
+  modal(`<div class="modal">
+    <div class="modal-header">
+      <h3>Record Payment — ${esc(supplier)}</h3>
+      <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+    </div>
+    <div class="modal-body">
+      ${bal > 0 ? `<div class="alert alert-info" style="margin-bottom:12px">
+        Purchased: <strong>₹${fmt(total)}</strong> &nbsp;·&nbsp; Paid: <strong>₹${fmt(paid)}</strong> &nbsp;·&nbsp; Balance: <strong style="color:#a02020">₹${fmt(bal)}</strong>
+      </div>` : `<div class="alert" style="background:var(--success-bg);color:var(--success);border:1px solid var(--success-bd);margin-bottom:12px">Account is fully paid up.</div>`}
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Payment date</label>
+          <input type="date" id="shpay-date" value="${today()}">
+        </div>
+        <div class="form-group"><label>Amount (₹)</label>
+          <input type="number" id="shpay-amt" min="0" placeholder="0" inputmode="numeric" ${bal>0?`value="${bal}"`:''}>
+        </div>
+      </div>
+      <div class="form-group"><label>Note <span style="font-size:11px;color:#aaa">(optional)</span></label>
+        <input type="text" id="shpay-note" placeholder="e.g. Cash, UPI, cheque…">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveShopPayment('${esc(supplier)}')">Save payment</button>
+    </div>
+  </div>`);
+}
+
+async function saveShopPayment(supplier) {
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if(btn) { btn.disabled=true; btn.textContent='Saving…'; }
+  const amt = parseFloat(document.getElementById('shpay-amt').value||0);
+  if(!amt || amt <= 0) { alert('Enter an amount'); if(btn){btn.disabled=false;btn.textContent='Save payment';} return; }
+  try {
+    await col('shop_payments').add({
+      date: document.getElementById('shpay-date').value,
+      supplier,
+      amount: amt,
+      note: document.getElementById('shpay-note')?.value.trim()||''
+    });
+    closeModal();
+  } catch(e) {
+    alert('Save failed: '+e.message);
+    if(btn){btn.disabled=false;btn.textContent='Save payment';}
+  }
+}
+
+async function delShopExpense(id) {
+  if(!confirm('Delete this expense record?')) return;
+  await col('shop_expenses').doc(id).delete();
+}
+
+async function delShopPayment(id) {
+  if(!confirm('Delete this payment record?')) return;
+  await col('shop_payments').doc(id).delete();
+}
+
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
 function renderSettings() {
   document.getElementById('topbar-action').innerHTML = '';
-  const rates     = JSON.parse(localStorage.getItem('hpf_pipe_rates') || '{}');
+  const rates     = cache.pipe_rates || {};
   const delivRate = localStorage.getItem('hpf_delivery_rate') || '';
 
   const rateRows = PIPE_TYPES.map(t => `
@@ -3822,9 +4095,10 @@ function renderSettings() {
 }
 
 function savePipeRate(pipeType, value) {
-  const rates = JSON.parse(localStorage.getItem('hpf_pipe_rates') || '{}');
+  const rates = cache.pipe_rates || {};
   rates[pipeType] = Math.max(0, parseInt(value) || 0);
-  localStorage.setItem('hpf_pipe_rates', JSON.stringify(rates));
+  cache.pipe_rates = rates;
+  firestoreDb.collection('meta').doc('pipe_rates').set(rates);
 }
 function saveDeliveryRate() {
   const v = parseFloat(document.getElementById('delivery-rate-input')?.value) || 0;
