@@ -673,7 +673,7 @@ function listen(colName, callback) {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function initApp(user) {
-  const [orders, production, attendance, advances, materials, expenses, assign, karchi, salaryPay, shopExp, shopPay, staffDoc, payDoc, openingDoc, matOpeningDoc, consumeRatesDoc, pipeRatesDoc, piecerateDoc] = await Promise.all([
+  const [orders, production, attendance, advances, materials, expenses, assign, karchi, salaryPay, shopExp, shopPay, staffDoc, payDoc, openingDoc, matOpeningDoc, consumeRatesDoc, pipeRatesDoc, piecerateDoc, pipeThreshDoc, matThreshDoc] = await Promise.all([
     getAll('orders'), getAll('production'), getAll('attendance'), getAll('advances'), getAll('materials'), getAll('expenses'), getAssign(),
     getAll('labour_karchi'),
     getAll('salary_payments'),
@@ -685,7 +685,9 @@ async function initApp(user) {
     firestoreDb.collection('meta').doc('mat_opening').get().catch(()=>null),
     firestoreDb.collection('meta').doc('consume_rates').get().catch(()=>null),
     firestoreDb.collection('meta').doc('pipe_rates').get().catch(()=>null),
-    firestoreDb.collection('meta').doc('piecerate').get().catch(()=>null)
+    firestoreDb.collection('meta').doc('piecerate').get().catch(()=>null),
+    firestoreDb.collection('meta').doc('pipe_stock_thresholds').get().catch(()=>null),
+    firestoreDb.collection('meta').doc('mat_stock_thresholds').get().catch(()=>null)
   ]);
 
   // Staff names: Firestore is authoritative (syncs across devices)
@@ -721,8 +723,19 @@ async function initApp(user) {
     piecerate = JSON.parse(localStorage.getItem('hpf_piecerate') || '{}');
     if (Object.keys(piecerate).length) firestoreDb.collection('meta').doc('piecerate').set(piecerate);
   }
+  // Stock thresholds: Firestore is authoritative; migrate from localStorage on first run
+  let pipe_stock_thresholds = (pipeThreshDoc && pipeThreshDoc.exists) ? pipeThreshDoc.data() : null;
+  if (!pipe_stock_thresholds) {
+    pipe_stock_thresholds = JSON.parse(localStorage.getItem('hpf_stock_thresholds') || '{}');
+    if (Object.keys(pipe_stock_thresholds).length) firestoreDb.collection('meta').doc('pipe_stock_thresholds').set(pipe_stock_thresholds);
+  }
+  let mat_stock_thresholds = (matThreshDoc && matThreshDoc.exists) ? matThreshDoc.data() : null;
+  if (!mat_stock_thresholds) {
+    mat_stock_thresholds = JSON.parse(localStorage.getItem('hpf_mat_thresholds') || '{}');
+    if (Object.keys(mat_stock_thresholds).length) firestoreDb.collection('meta').doc('mat_stock_thresholds').set(mat_stock_thresholds);
+  }
 
-  cache = { orders, production, attendance, advances, materials, expenses, dispatch_assign: assign, pipe_opening, mat_opening, labour_karchi: karchi, salary_payments: salaryPay, consume_rates, pipe_rates, piecerate, shop_expenses: shopExp, shop_payments: shopPay };
+  cache = { orders, production, attendance, advances, materials, expenses, dispatch_assign: assign, pipe_opening, mat_opening, labour_karchi: karchi, salary_payments: salaryPay, consume_rates, pipe_rates, piecerate, pipe_stock_thresholds: pipe_stock_thresholds||{}, mat_stock_thresholds: mat_stock_thresholds||{}, shop_expenses: shopExp, shop_payments: shopPay };
 
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -934,7 +947,31 @@ async function exportToExcel() {
     styleSheet(wsMat, matData.length);
     XLSX.utils.book_append_sheet(wb, wsMat, 'Raw Materials');
 
-    // ── Sheet 6: Dispatch Assignments ──
+    // ── Sheet 6: Shop Expenses & Payments ──
+    const shopExpData = [...(cache.shop_expenses||[])].sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(e=>({
+      'Date':        fmtDate(e.date),
+      'Supplier':    e.supplier||'',
+      'Category':    (e.category||'').replace('factory_','Factory — ').replace('lorry_','Lorry — ').replace('factory','Factory').replace('lorry','Lorry'),
+      'Item / Product': e.item||'',
+      'Note':        e.description||'',
+      'Amount (₹)':  Number(e.amount)||0
+    }));
+    const shopPayData = [...(cache.shop_payments||[])].sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(p=>({
+      'Date':       fmtDate(p.date),
+      'Supplier':   p.supplier||'',
+      'Amount (₹)': Number(p.amount)||0,
+      'Note':       p.note||''
+    }));
+    if(shopExpData.length || shopPayData.length) {
+      const wsShopExp = XLSX.utils.json_to_sheet(shopExpData.length ? shopExpData : [{'No data':'No shop expenses yet'}]);
+      styleSheet(wsShopExp, shopExpData.length);
+      XLSX.utils.book_append_sheet(wb, wsShopExp, 'Shop Expenses');
+      const wsShopPay = XLSX.utils.json_to_sheet(shopPayData.length ? shopPayData : [{'No data':'No shop payments yet'}]);
+      styleSheet(wsShopPay, shopPayData.length);
+      XLSX.utils.book_append_sheet(wb, wsShopPay, 'Shop Payments');
+    }
+
+    // ── Sheet 8: Dispatch Assignments ──
     const dispatchRows = Object.entries(cache.dispatch_assign||{}).map(([area, driver])=>({
       'Route / Area': area,
       'Assigned Driver': driver
@@ -943,7 +980,7 @@ async function exportToExcel() {
     styleSheet(wsDispatch, dispatchRows.length);
     XLSX.utils.book_append_sheet(wb, wsDispatch, 'Dispatch');
 
-    // ── Sheet 7: Summary ──
+    // ── Sheet 9: Summary ──
     const totalBalance = orders.filter(o=>o.status!=='delivered').reduce((s,o)=>s+(Number(o.balance)||0),0);
     const totalAdvances = advances.reduce((s,a)=>s+(Number(a.amount)||0),0);
     const summaryData = [
@@ -1201,8 +1238,8 @@ function renderDashboard() {
 async function togglePaid(id, checked) {
   const o = cache.orders.find(x=>x.id===id);
   if(!checked && o) {
-    // Restore balance = total - advance when unchecking
-    const restoredBalance = Math.max(0, (Number(o.total)||0) - (Number(o.advance)||0));
+    const collected = (o.payments||[]).reduce((s,p)=>s+(Number(p.amount)||0),0);
+    const restoredBalance = Math.max(0, (Number(o.total)||0) - (Number(o.advance)||0) - collected);
     await col('orders').doc(id).update({paid: false, balance: restoredBalance});
   } else {
     await col('orders').doc(id).update({paid: true, balance: 0});
@@ -1318,6 +1355,8 @@ function renderOrderTable(orders, el, showStatus) {
           ${o.status==='ready'?`<button class="btn-sm btn-primary" onclick="setStatus('${o.id}','delivered')">Delivered</button> `:''}
           ${o.status==='ready'?`<button class="btn-sm" style="color:#e67e00;border-color:#e67e00" onclick="setStatus('${o.id}','pending')">↩ Pending</button> `:''}
           ${o.status==='delivered'?`<button class="btn-sm" style="color:#e67e00;border-color:#e67e00" onclick="revertToReady('${o.id}')">↩ Ready</button> `:''}
+          ${Number(o.balance)>0?`<button class="btn-sm btn-success" onclick="openOrderPayModal('${o.id}')" title="Collect payment"><i class="ti ti-cash"></i></button> `:''}
+          <button class="btn-sm" onclick="openOrderInvoice('${o.id}')" title="View bill / invoice"><i class="ti ti-receipt"></i></button>
           <button class="btn-sm" onclick="openOrderModal('${o.id}')">Edit</button>
           <button class="btn-sm" style="color:#25d366;border-color:#25d366" onclick="shareOrder('${o.id}')" title="Share via WhatsApp"><i class="ti ti-brand-whatsapp"></i></button>
           <button class="btn-sm btn-danger" onclick="delOrder('${o.id}')">Del</button>
@@ -1349,7 +1388,7 @@ async function revertToReady(id) {
   if(!confirm(`Move "${o.customer}" back to Ready?\nThis will remove the delivered status.`)) return;
   await col('orders').doc(id).update({status:'ready'});
 }
-async function delOrder(id) { if(!confirm('Delete this order?')) return; await col('orders').doc(id).delete(); }
+async function delOrder(id) { if(!confirm('Delete this order?')) return; try { await col('orders').doc(id).delete(); } catch(e) { alert('Delete failed: '+e.message); } }
 
 function openOrderModal(id) {
   const o = id ? cache.orders.find(x=>x.id===id) : null;
@@ -1524,9 +1563,11 @@ async function saveOrder(id) {
   const address = addressVisible || addressHidden || '';
   const total   = Number(document.getElementById('f-total')?.value||0);
   const advance = Number(document.getElementById('f-advance')?.value||0);
-  const balance = Math.max(0, total - advance);
+  const existing = id ? cache.orders.find(o=>o.id===id) : null;
+  const existingPayments = existing?.payments || [];
+  const collectedExtra = existingPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const balance = Math.max(0, total - advance - collectedExtra);
   const route = document.getElementById('f-route-search')?.value.trim() || '';
-  // Save route to local suggestions list
   if(route) saveRouteSuggestion(route);
   const data = {
     customer, phone: document.getElementById('f-phone').value.trim(),
@@ -1537,7 +1578,9 @@ async function saveOrder(id) {
     total, advance, balance,
     paymentMode: document.getElementById('f-paymentMode')?.value || 'Cash',
     pipes, notes: document.getElementById('f-notes').value,
-    status: id ? (cache.orders.find(o=>o.id===id)?.status||'pending') : 'pending'
+    status: existing ? (existing.status||'pending') : 'pending',
+    paid: existing ? (existing.paid||false) : false,
+    payments: existingPayments
   };
   try {
     await col('orders').doc(id||uid()).set(data);
@@ -1687,7 +1730,7 @@ function prevMonthEnd() {
 
 // ── PIPE STOCK ────────────────────────────────────────────────────────────────
 function calcPipeStock() {
-  const thresholds = JSON.parse(localStorage.getItem('hpf_stock_thresholds') || '{}');
+  const thresholds = cache.pipe_stock_thresholds || {};
   const opening = cache.pipe_opening || {};
   const result = {};
   PIPE_TYPES.forEach(t => {
@@ -1706,9 +1749,10 @@ function calcPipeStock() {
   return result;
 }
 function saveStockThreshold(pipeType, value) {
-  const thresholds = JSON.parse(localStorage.getItem('hpf_stock_thresholds') || '{}');
+  const thresholds = { ...(cache.pipe_stock_thresholds||{}) };
   thresholds[pipeType] = Math.max(0, parseInt(value) || 0);
-  localStorage.setItem('hpf_stock_thresholds', JSON.stringify(thresholds));
+  cache.pipe_stock_thresholds = thresholds;
+  firestoreDb.collection('meta').doc('pipe_stock_thresholds').set(thresholds);
   const panel = document.getElementById('prod-stock-panel');
   if (panel) panel.innerHTML = renderStockTab();
 }
@@ -1766,7 +1810,7 @@ function renderStockTab() {
 
 // ── MATERIAL STOCK ─────────────────────────────────────────────────────────────
 function calcMaterialStock() {
-  const thresholds = JSON.parse(localStorage.getItem('hpf_mat_thresholds') || '{}');
+  const thresholds = cache.mat_stock_thresholds || {};
   const rates      = cache.consume_rates || {};
   const opening    = cache.mat_opening || {};
   const fromDate   = opening._from_date || '';  // only count records on/after this date
@@ -1797,9 +1841,10 @@ function calcMaterialStock() {
 }
 
 function saveMaterialThreshold(matId, value) {
-  const thresholds = JSON.parse(localStorage.getItem('hpf_mat_thresholds') || '{}');
+  const thresholds = { ...(cache.mat_stock_thresholds||{}) };
   thresholds[matId] = Math.max(0, parseFloat(value) || 0);
-  localStorage.setItem('hpf_mat_thresholds', JSON.stringify(thresholds));
+  cache.mat_stock_thresholds = thresholds;
+  firestoreDb.collection('meta').doc('mat_stock_thresholds').set(thresholds);
   const panel = document.getElementById('mat-stock-panel');
   if (panel) panel.innerHTML = renderMatStockTab();
 }
@@ -1814,7 +1859,7 @@ function saveConsumeRate(pipeType, matId, value) {
   if (panel) panel.innerHTML = renderMatRatesTab();
 }
 
-async function delProd(id) { if(!confirm('Delete this record?')) return; await col('production').doc(id).delete(); }
+async function delProd(id) { if(!confirm('Delete this record?')) return; try { await col('production').doc(id).delete(); } catch(e) { alert('Delete failed: '+e.message); } }
 
 function openQuickProdModal(id) {
   const p = id ? cache.production.find(x=>x.id===id) : null;
@@ -1939,7 +1984,13 @@ function renderDispatch() {
           ${assigned?`<span style="font-size:12px;color:#555;display:flex;align-items:center;gap:4px">
             <i class="ti ti-check" style="color:#3b8a2a"></i> Assigned to <strong>${esc(assigned)}</strong>
           </span>`:''}
-          ${assigned?`<button class="btn-sm btn-success" style="margin-left:auto" data-area="${esc(area)}" onclick="markBatchDoneData(this)">✓ Mark all delivered</button>`:''}
+          ${assigned?`<label style="font-size:12px;color:#555;display:flex;align-items:center;gap:6px;margin-left:auto">
+            <i class="ti ti-droplet" style="color:#d97706"></i> Fuel ₹
+            <input type="number" min="0" inputmode="numeric" placeholder="0" data-area="${esc(area)}"
+              id="fuel-${esc(area.replace(/\s+/g,'_'))}"
+              style="width:80px;padding:3px 7px;font-size:12px;border:1px solid var(--border);border-radius:6px;font-family:var(--font)">
+          </label>
+          <button class="btn-sm btn-success" data-area="${esc(area)}" onclick="markBatchDoneData(this)">✓ Mark all delivered</button>`:''}
         </div>
       </div>`;
     }).join('')}`;
@@ -1951,7 +2002,15 @@ async function assignDriver(area, driver) {
 }
 async function assignDriverData(el) { await assignDriver(el.dataset.area, el.value); }
 async function markBatchDone(area) {
-  if(!confirm(`Mark all orders for "${area}" as delivered?`)) return;
+  const toDeliver = cache.orders.filter(o=>{
+    if(o.status!=='ready') return false;
+    const key=(o.route&&o.route.trim())?o.route.trim():(o.address||'Unknown').split(/[\s,]+/).slice(0,2).join(' ');
+    return key===area;
+  });
+  const names = toDeliver.map(o=>o.customer).join(', ');
+  if(!confirm(`Mark ${toDeliver.length} order${toDeliver.length!==1?'s':''} as delivered for "${area}"?\n\n${names}\n\nUse "↩ Ready" on each order if you need to undo.`)) return;
+  const fuelInput = document.getElementById('fuel-'+area.replace(/\s+/g,'_'));
+  const fuelAmt   = fuelInput ? parseFloat(fuelInput.value||0) : 0;
   const batch=firestoreDb.batch();
   cache.orders.forEach(o=>{
     if(o.status==='ready') {
@@ -1960,6 +2019,11 @@ async function markBatchDone(area) {
     }
   });
   await batch.commit();
+  if(fuelAmt > 0) {
+    const saved = cache.dispatch_assign||{};
+    const driver = saved[area]||'';
+    await col('expenses').add({ date: today(), category: 'diesel', amount: fuelAmt, note: `Trip to ${area}${driver?' ('+driver+')':''}` });
+  }
 }
 async function markBatchDoneData(el) { await markBatchDone(el.dataset.area); }
 
@@ -2107,7 +2171,7 @@ async function saveExpData() {
 
 async function delExp(id) {
   if(!confirm('Delete this expense?')) return;
-  await col('expenses').doc(id).delete();
+  try { await col('expenses').doc(id).delete(); } catch(e) { alert('Delete failed: '+e.message); }
 }
 
 // ── PROFIT ────────────────────────────────────────────────────────────────────
@@ -2155,9 +2219,9 @@ function calcStaffSalaryCost(monthStr) {
 }
 
 function calcMonthProfit(monthStr) {
-  const revenue  = cache.orders
-    .filter(o => o.status === 'delivered' && ((o.deliveryDate||o.orderDate)||'').startsWith(monthStr))
-    .reduce((s,o) => s+(Number(o.total)||0), 0);
+  const deliveredOrds = cache.orders.filter(o => o.status === 'delivered' && ((o.deliveryDate||o.orderDate)||'').startsWith(monthStr));
+  const revenue  = deliveredOrds.reduce((s,o) => s+(Number(o.total)||0)-(Number(o.balance)||0), 0);
+  const receivable = deliveredOrds.reduce((s,o) => s+(Number(o.balance)||0), 0);
   const matCost  = cache.materials
     .filter(m => (m.date||'').startsWith(monthStr))
     .reduce((s,m) => s+(Number(m.totalAmt)||0), 0);
@@ -2171,11 +2235,13 @@ function calcMonthProfit(monthStr) {
   const totalCost = matCost + expCost + shopCost + staffCost + labourCost;
   const profit    = revenue - totalCost;
   const margin    = revenue > 0 ? (profit/revenue*100) : null;
-  return { revenue, matCost, expCost, shopCost, staffCost, labourCost, totalCost, profit, margin };
+  return { revenue, receivable: receivable||0, matCost, expCost, shopCost, staffCost, labourCost, totalCost, profit, margin };
 }
 
 function calcAllTimeProfit() {
-  const revenue  = cache.orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(Number(o.total)||0),0);
+  const deliveredAll = cache.orders.filter(o=>o.status==='delivered');
+  const revenue  = deliveredAll.reduce((s,o)=>s+(Number(o.total)||0)-(Number(o.balance)||0),0);
+  const receivable = deliveredAll.reduce((s,o)=>s+(Number(o.balance)||0),0);
   const matCost  = cache.materials.reduce((s,m)=>s+(Number(m.totalAmt)||0),0);
   const expCost  = cache.expenses.reduce((s,e)=>s+(Number(e.amount)||0),0);
   const shopCost = (cache.shop_expenses||[]).reduce((s,e)=>s+(Number(e.amount)||0),0);
@@ -2190,7 +2256,7 @@ function calcAllTimeProfit() {
   const totalCost = matCost + expCost + shopCost + staffCost + labourCost;
   const profit    = revenue - totalCost;
   const margin    = revenue > 0 ? (profit/revenue*100) : null;
-  return { revenue, matCost, expCost, shopCost, staffCost, labourCost, totalCost, profit, margin };
+  return { revenue, receivable: receivable||0, matCost, expCost, shopCost, staffCost, labourCost, totalCost, profit, margin };
 }
 
 function renderProfit() {
@@ -2273,8 +2339,12 @@ function renderProfit() {
            <button class="btn-sm" onclick="profNextMonth()"${isCurrentM?' disabled':''}>›</button>
            <button class="btn-sm" onclick="profitFilterMonth='all';renderProfit()">All time</button>`}
     </div>
+    ${stats.receivable > 0 ? `<div class="alert" style="background:#fffbeb;color:#78350f;border:1px solid #fde68a;margin-bottom:0.75rem">
+      <i class="ti ti-clock"></i>
+      <div><strong>₹${fmt(stats.receivable)} uncollected</strong> from delivered orders — not counted in revenue below until received.</div>
+    </div>` : ''}
     <div class="grid-4" style="margin-bottom:0.75rem">
-      <div class="metric"><div class="metric-label">Revenue</div><div class="metric-value" style="font-size:17px;color:var(--success)">₹${fmt(stats.revenue)}</div></div>
+      <div class="metric"><div class="metric-label">Revenue (cash collected)</div><div class="metric-value" style="font-size:17px;color:var(--success)">₹${fmt(stats.revenue)}</div>${stats.receivable>0?`<div style="font-size:10px;color:var(--warning);margin-top:3px">+₹${fmt(stats.receivable)} pending</div>`:''}</div>
       <div class="metric"><div class="metric-label">Material cost</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.matCost)}</div></div>
       <div class="metric"><div class="metric-label">Expenses</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.expCost)}</div></div>
       <div class="metric"><div class="metric-label">Total cost</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.totalCost)}</div></div>
@@ -2350,7 +2420,7 @@ function renderProfit() {
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:420px">
         <thead><tr style="background:var(--bg);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">
           <th style="padding:8px 12px;text-align:left">Month</th>
-          <th style="padding:8px 12px;text-align:right">Revenue</th>
+          <th style="padding:8px 12px;text-align:right">Revenue (collected)</th>
           <th style="padding:8px 12px;text-align:right">Materials</th>
           <th style="padding:8px 12px;text-align:right">Expenses</th>
           <th style="padding:8px 12px;text-align:right">Shops</th>
@@ -2496,8 +2566,10 @@ function buildStaffOverview() {
 // e.g. salaryDay=20, refMonth='2026-06' → from=2026-06-20, to=2026-07-19
 function staffPeriod(salaryDay, refMonth) {
   const [y, m] = refMonth.split('-').map(Number);
-  const fromY = y, fromM = m, fromD = salaryDay;
-  const from = fromY+'-'+String(fromM).padStart(2,'0')+'-'+String(fromD).padStart(2,'0');
+  // Clamp salaryDay to actual days in the month to avoid invalid dates (e.g. Feb 31)
+  const lastDayFrom = new Date(y, m, 0).getDate();
+  const fromD = Math.min(salaryDay, lastDayFrom);
+  const from = y+'-'+String(m).padStart(2,'0')+'-'+String(fromD).padStart(2,'0');
   // to = day before salaryDay of the following month
   let toY = y, toM = m + 1;
   if(toM > 12) { toM = 1; toY++; }
@@ -2599,7 +2671,7 @@ function renderPayrollTab() {
                 ? `<span style="color:var(--success);font-weight:600">${r.daysPresent}</span><span style="color:var(--muted);font-size:11px"> / ${r.totalLogged}</span>${r.daysAbsent>0?` <span style="color:var(--danger);font-size:11px">(${r.daysAbsent} absent)</span>`:''}`
                 : `<span style="color:var(--muted);font-size:11px">no data</span>`}
             </td>
-            <td style="text-align:right">${r.salary?'₹'+fmt(r.salary):'<span style="color:var(--muted);font-size:11px">not set</span>'}</td>
+            <td style="text-align:right">${r.salary?'₹'+fmt(r.salary):'<span style="color:var(--danger);font-size:11px" title="Set salary in Staff Settings tab">⚠ not set</span>'}</td>
             <td style="text-align:right;color:var(--danger)">${r.absentDeduction>0?'−₹'+fmt(r.absentDeduction)+' <span style="font-size:10px;color:var(--muted)">(₹'+fmt(r.dailyRate)+'/day)</span>':'—'}</td>
             <td style="text-align:right;font-weight:600">₹${fmt(r.earned)}</td>
             <td style="text-align:right;color:var(--danger)">${r.adv?'−₹'+fmt(r.adv):'—'}</td>
@@ -2608,7 +2680,10 @@ function renderPayrollTab() {
             <td style="text-align:right;font-weight:700;color:${r.remaining>0?'var(--warning)':r.remaining<0?'var(--danger)':'var(--success)'}">
               ${r.remaining===0?'<span style="color:var(--success);font-size:12px">✓ Settled</span>':'₹'+fmt(Math.abs(r.remaining))+(r.remaining<0?' <span style="font-size:10px">(excess)</span>':'')}
             </td>
-            <td><button class="btn-sm btn-primary" data-staff="${esc(r.name)}" data-amount="${r.remaining>0?r.remaining:0}" data-month="${mon}" onclick="openSalaryPayModal(this.dataset.staff,this.dataset.amount,this.dataset.month)">Pay</button></td>
+            <td style="white-space:nowrap">
+              <button class="btn-sm btn-primary" data-staff="${esc(r.name)}" data-amount="${r.remaining>0?r.remaining:0}" data-month="${mon}" onclick="openSalaryPayModal(this.dataset.staff,this.dataset.amount,this.dataset.month)">Pay</button>
+              <button class="btn-sm" style="margin-left:4px" data-staff="${esc(r.name)}" data-month="${mon}" onclick="openSalarySlip(this.dataset.staff,this.dataset.month)" title="Print salary slip"><i class="ti ti-receipt"></i></button>
+            </td>
           </tr>`).join('')}
         </tbody>
         <tfoot><tr style="background:var(--bg)">
@@ -2785,7 +2860,107 @@ async function saveSalaryPay(staffName, month) {
 
 async function delKarchi(id) {
   if(!confirm('Delete this karchi entry?')) return;
-  await col('labour_karchi').doc(id).delete();
+  try { await col('labour_karchi').doc(id).delete(); } catch(e) { alert('Delete failed: '+e.message); }
+}
+
+function openSalarySlip(staffName, mon) {
+  const cfg       = STAFF_PAY_CONFIG[staffName] || {};
+  const salary    = Number(cfg.salary) || 0;
+  const salaryDay = Number(cfg.salaryDay) || 1;
+  const period    = staffPeriod(salaryDay, mon);
+  let sundays = 0;
+  for(let d=new Date(period.from);d<=new Date(period.to);d.setDate(d.getDate()+1)){ if(d.getDay()===0) sundays++; }
+  const weekdayAtt = cache.attendance.filter(a=>a.staff===staffName&&a.date&&inRange(a.date,period.from,period.to)&&new Date(a.date).getDay()!==0);
+  const daysPresent = weekdayAtt.filter(a=>a.present).length + sundays;
+  const daysAbsent  = weekdayAtt.filter(a=>!a.present).length;
+  const totalLogged = weekdayAtt.length + sundays;
+  const dailyRate   = totalLogged > 0 ? Math.round(salary/totalLogged) : 0;
+  const absentDed   = dailyRate * daysAbsent;
+  const earned      = salary - absentDed;
+  const advances    = cache.advances.filter(a=>a.staff===staffName&&a.date&&inRange(a.date,period.from,period.to));
+  const advTotal    = advances.reduce((s,a)=>s+(Number(a.amount)||0),0);
+  const paid        = (cache.salary_payments||[]).filter(p=>p.staff===staffName&&p.month===mon).reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const net         = earned - advTotal;
+  const remaining   = net - paid;
+  const [y,m]       = mon.split('-').map(Number);
+  const monthLabel  = new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'});
+  modal(`<div class="modal" style="width:480px">
+    <div class="modal-header">
+      <h3>Salary Slip — ${esc(staffName)}</h3>
+      <div style="display:flex;gap:6px">
+        <button class="btn-sm" onclick="window.print()"><i class="ti ti-printer"></i> Print</button>
+        <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div style="text-align:center;margin-bottom:1rem">
+        <div style="font-size:17px;font-weight:700;color:#1e40af">Hume Pipes — Tiptur</div>
+        <div style="font-size:13px;font-weight:600;margin-top:4px">Salary Slip — ${monthLabel}</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:1rem;padding-bottom:0.75rem;border-bottom:1px solid var(--border)">
+        <div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Employee</div>
+          <div style="font-size:15px;font-weight:700">${esc(staffName)}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:600">Pay period</div>
+          <div style="font-size:13px">${fmtDate(period.from)} – ${fmtDate(period.to)}</div>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:1rem">
+        <tbody>
+          <tr style="border-bottom:1px solid var(--border-light)">
+            <td style="padding:8px 4px;color:var(--muted)">Days in period</td>
+            <td style="padding:8px 4px;text-align:right;font-weight:600">${totalLogged}</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--border-light)">
+            <td style="padding:8px 4px;color:var(--muted)">Days present</td>
+            <td style="padding:8px 4px;text-align:right;font-weight:600;color:var(--success)">${daysPresent}</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--border-light)">
+            <td style="padding:8px 4px;color:var(--muted)">Days absent</td>
+            <td style="padding:8px 4px;text-align:right;font-weight:600;color:${daysAbsent>0?'var(--danger)':'var(--muted)'}">${daysAbsent}</td>
+          </tr>
+          <tr style="border-bottom:2px solid var(--border)">
+            <td style="padding:8px 4px;color:var(--muted)">Daily rate (₹${fmt(salary)} ÷ ${totalLogged}d)</td>
+            <td style="padding:8px 4px;text-align:right">₹${fmt(dailyRate)}/day</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--border-light)">
+            <td style="padding:8px 4px;font-weight:600">Full salary</td>
+            <td style="padding:8px 4px;text-align:right;font-weight:600">₹${fmt(salary)}</td>
+          </tr>
+          ${absentDed>0?`<tr style="border-bottom:1px solid var(--border-light)">
+            <td style="padding:8px 4px;color:var(--danger)">Absent deduction (${daysAbsent}d × ₹${fmt(dailyRate)})</td>
+            <td style="padding:8px 4px;text-align:right;color:var(--danger)">−₹${fmt(absentDed)}</td>
+          </tr>`:''}
+          <tr style="border-bottom:1px solid var(--border-light)">
+            <td style="padding:8px 4px;font-weight:600">Earned</td>
+            <td style="padding:8px 4px;text-align:right;font-weight:600">₹${fmt(earned)}</td>
+          </tr>
+          ${advTotal>0?`<tr style="border-bottom:1px solid var(--border-light)">
+            <td style="padding:8px 4px;color:var(--danger)">Advances deducted</td>
+            <td style="padding:8px 4px;text-align:right;color:var(--danger)">−₹${fmt(advTotal)}</td>
+          </tr>`:''}
+          <tr style="background:var(--bg)">
+            <td style="padding:10px 4px;font-weight:700;font-size:14px">Net payable</td>
+            <td style="padding:10px 4px;text-align:right;font-weight:700;font-size:14px;color:var(--success)">₹${fmt(net)}</td>
+          </tr>
+          ${paid>0?`<tr style="border-bottom:1px solid var(--border-light)">
+            <td style="padding:8px 4px;color:var(--muted)">Already paid</td>
+            <td style="padding:8px 4px;text-align:right;color:var(--success)">₹${fmt(paid)}</td>
+          </tr>
+          <tr>
+            <td style="padding:8px 4px;font-weight:600">Remaining</td>
+            <td style="padding:8px 4px;text-align:right;font-weight:700;color:${remaining>0?'var(--warning)':remaining<0?'var(--danger)':'var(--success)'}">
+              ${remaining===0?'✓ Settled':'₹'+fmt(Math.abs(remaining))+(remaining<0?' (excess)':'')}
+            </td>
+          </tr>`:''}
+        </tbody>
+      </table>
+      ${advances.length?`<div style="font-size:12px;color:var(--muted);margin-bottom:8px"><strong>Advances:</strong> ${advances.map(a=>fmtDate(a.date)+' ₹'+fmt(a.amount)+(a.note?' ('+a.note+')':'')).join(', ')}</div>`:''}
+      <div style="text-align:center;font-size:11px;color:#94a3b8;border-top:1px solid var(--border-light);padding-top:8px">Hume Pipes — Tiptur</div>
+    </div>
+  </div>`);
 }
 
 function openAttModal() {
@@ -2865,7 +3040,7 @@ async function saveAdvance() {
 
 async function delAdvance(id) {
   if(!confirm('Delete this advance record?')) return;
-  await col('advances').doc(id).delete();
+  try { await col('advances').doc(id).delete(); } catch(e) { alert('Delete failed: '+e.message); }
 }
 
 // ── MATERIALS ─────────────────────────────────────────────────────────────────
@@ -3790,7 +3965,7 @@ function renderSupTerms() {
 
 async function delMat(id) {
   if(!confirm('Delete this delivery record and all its payments?')) return;
-  await col('materials').doc(id).delete();
+  try { await col('materials').doc(id).delete(); } catch(e) { alert('Delete failed: '+e.message); return; }
 }
 
 // ── SHOP SUPPLIERS ────────────────────────────────────────────────────────────
@@ -3815,7 +3990,7 @@ function renderShopsTab() {
       if (tx._type === 'expense') {
         return `<tr>
           <td style="padding:9px 12px;font-size:12px;color:var(--muted)">${fmtDate(tx.date)}</td>
-          <td style="padding:9px 12px"><span class="badge ${tx.category==='lorry'?'badge-amber':'badge-blue'}" style="font-size:10px">${tx.category==='lorry'?'Lorry':'Factory'}</span></td>
+          <td style="padding:9px 12px"><span class="badge ${tx.category&&tx.category.startsWith('lorry')?'badge-amber':'badge-blue'}" style="font-size:10px">${(tx.category||'factory').replace('factory_','Factory — ').replace('lorry_','Lorry — ').replace('factory','Factory').replace('lorry','Lorry')}</span></td>
           <td style="padding:9px 12px;font-size:13px;font-weight:500">${esc(tx.item||'—')}</td>
           <td style="padding:9px 12px;font-size:12px;color:var(--muted)">${esc(tx.description||'')}</td>
           <td style="padding:9px 12px;font-size:13px;text-align:right;color:#a02020;font-weight:600">−₹${fmt(tx.amount)}</td>
@@ -3881,8 +4056,21 @@ function openShopExpenseModal(supplier) {
         </div>
         <div class="form-group"><label>Category</label>
           <select id="shexp-cat">
-            <option value="factory">Factory items</option>
-            <option value="lorry">Lorry items</option>
+            <optgroup label="Factory">
+              <option value="factory_spares">Factory — Spare parts</option>
+              <option value="factory_electrical">Factory — Electrical</option>
+              <option value="factory_tools">Factory — Tools</option>
+              <option value="factory_consumables">Factory — Consumables / Hardware</option>
+              <option value="factory_lubricants">Factory — Lubricants / Oil</option>
+              <option value="factory_other">Factory — Other</option>
+            </optgroup>
+            <optgroup label="Lorry">
+              <option value="lorry_spares">Lorry — Spare parts</option>
+              <option value="lorry_tyres">Lorry — Tyres / Tubes</option>
+              <option value="lorry_lubricants">Lorry — Lubricants / Oil</option>
+              <option value="lorry_service">Lorry — Service / Labour</option>
+              <option value="lorry_other">Lorry — Other</option>
+            </optgroup>
           </select>
         </div>
       </div>
@@ -3978,12 +4166,12 @@ async function saveShopPayment(supplier) {
 
 async function delShopExpense(id) {
   if(!confirm('Delete this expense record?')) return;
-  await col('shop_expenses').doc(id).delete();
+  try { await col('shop_expenses').doc(id).delete(); } catch(e) { alert('Delete failed: '+e.message); }
 }
 
 async function delShopPayment(id) {
   if(!confirm('Delete this payment record?')) return;
-  await col('shop_payments').doc(id).delete();
+  try { await col('shop_payments').doc(id).delete(); } catch(e) { alert('Delete failed: '+e.message); }
 }
 
 // ── SETTINGS ──────────────────────────────────────────────────────────────────
@@ -4134,6 +4322,190 @@ async function saveMatOpening() {
 }
 
 // WhatsApp order sharing
+// ── ORDER INVOICE ─────────────────────────────────────────────────────────────
+function openOrderInvoice(orderId) {
+  const o = cache.orders.find(x=>x.id===orderId);
+  if(!o) return;
+  const pipeRows = PIPE_TYPES.filter(t=>(o.pipes||{})[t]>0).map(t=>{
+    const qty = o.pipes[t];
+    const rates = cache.pipe_rates || {};
+    const rate = Number(rates[t]) || 0;
+    return `<tr>
+      <td style="padding:6px 10px;border:1px solid #e2e8f0">${esc(t)}</td>
+      <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:center">${qty}</td>
+      <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right">${rate?'₹'+fmt(rate):'—'}</td>
+      <td style="padding:6px 10px;border:1px solid #e2e8f0;text-align:right;font-weight:600">${rate?'₹'+fmt(qty*rate):'—'}</td>
+    </tr>`;
+  }).join('');
+  const orderPays = o.payments || [];
+  const collectedExtra = orderPays.reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const totalCollected = (Number(o.advance)||0) + collectedExtra;
+  const remaining = (Number(o.total)||0) - totalCollected;
+  const payHistory = orderPays.length ? `
+    <div style="margin-top:10px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:4px">Payment history</div>
+      ${[{date:o.orderDate,amount:o.advance,note:'Advance'+(o.paymentMode?' ('+o.paymentMode+')':'')},...orderPays]
+        .filter(p=>Number(p.amount)>0)
+        .map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:1px solid #f1f5f9">
+          <span>${fmtDate(p.date)} — ${esc(p.note||'Payment')}</span><span style="font-weight:600">₹${fmt(p.amount)}</span>
+        </div>`).join('')}
+    </div>` : '';
+  modal(`<div class="modal" style="width:560px">
+    <div class="modal-header">
+      <h3>Bill / Invoice</h3>
+      <div style="display:flex;gap:6px">
+        <button class="btn-sm" style="color:#25d366;border-color:#25d366" onclick="shareOrderInvoice('${orderId}')"><i class="ti ti-brand-whatsapp"></i> WhatsApp</button>
+        <button class="btn-sm" onclick="window.print()"><i class="ti ti-printer"></i> Print</button>
+        <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+      </div>
+    </div>
+    <div class="modal-body" id="invoice-body">
+      <div style="text-align:center;margin-bottom:1rem">
+        <div style="font-size:18px;font-weight:700;color:#1e40af">Hume Pipes — Tiptur</div>
+        <div style="font-size:12px;color:#64748b">Bill / Delivery Receipt</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Bill to</div>
+          <div style="font-size:14px;font-weight:700">${esc(o.customer)}</div>
+          ${o.phone?`<div style="font-size:13px;color:#374151">${esc(o.phone)}</div>`:''}
+          ${o.address?`<div style="font-size:12px;color:#64748b">${esc(o.address)}</div>`:''}
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:#64748b;text-transform:uppercase;font-weight:600">Order date</div>
+          <div style="font-size:13px">${fmtDate(o.orderDate)}</div>
+          ${o.deliveryDate?`<div style="font-size:11px;color:#64748b;margin-top:4px;text-transform:uppercase;font-weight:600">Delivery date</div><div style="font-size:13px">${fmtDate(o.deliveryDate)}</div>`:''}
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:1rem">
+        <thead><tr style="background:#f1f5f9">
+          <th style="padding:7px 10px;border:1px solid #e2e8f0;text-align:left">Item</th>
+          <th style="padding:7px 10px;border:1px solid #e2e8f0;text-align:center">Qty</th>
+          <th style="padding:7px 10px;border:1px solid #e2e8f0;text-align:right">Rate</th>
+          <th style="padding:7px 10px;border:1px solid #e2e8f0;text-align:right">Amount</th>
+        </tr></thead>
+        <tbody>${pipeRows}</tbody>
+        <tfoot>
+          <tr><td colspan="3" style="padding:7px 10px;border:1px solid #e2e8f0;text-align:right;font-weight:700">Total</td>
+              <td style="padding:7px 10px;border:1px solid #e2e8f0;text-align:right;font-weight:700;font-size:15px">₹${fmt(o.total)}</td></tr>
+          <tr><td colspan="3" style="padding:5px 10px;border:1px solid #e2e8f0;text-align:right;color:#64748b">Advance paid</td>
+              <td style="padding:5px 10px;border:1px solid #e2e8f0;text-align:right;color:#065f46">₹${fmt(o.advance)}</td></tr>
+          ${collectedExtra>0?`<tr><td colspan="3" style="padding:5px 10px;border:1px solid #e2e8f0;text-align:right;color:#64748b">Additional payments</td>
+              <td style="padding:5px 10px;border:1px solid #e2e8f0;text-align:right;color:#065f46">₹${fmt(collectedExtra)}</td></tr>`:''}
+          <tr style="background:${remaining>0?'#fff8f0':'#f0fdf4'}"><td colspan="3" style="padding:7px 10px;border:1px solid #e2e8f0;text-align:right;font-weight:700">${remaining>0?'Balance due':'Fully paid'}</td>
+              <td style="padding:7px 10px;border:1px solid #e2e8f0;text-align:right;font-weight:700;color:${remaining>0?'#991b1b':'#065f46'};font-size:15px">₹${fmt(remaining)}</td></tr>
+        </tfoot>
+      </table>
+      ${o.notes?`<div style="font-size:12px;color:#64748b;margin-bottom:8px"><strong>Notes:</strong> ${esc(o.notes)}</div>`:''}
+      ${payHistory}
+      <div style="text-align:center;font-size:11px;color:#94a3b8;margin-top:1rem;border-top:1px solid #f1f5f9;padding-top:8px">Hume Pipes — Tiptur · Thank you for your business</div>
+    </div>
+  </div>`);
+}
+
+function shareOrderInvoice(orderId) {
+  const o = cache.orders.find(x=>x.id===orderId);
+  if(!o) return;
+  const pipeList = PIPE_TYPES.filter(t=>(o.pipes||{})[t]>0).map(t=>`${t} × ${o.pipes[t]}`).join(', ');
+  const rates = cache.pipe_rates || {};
+  const rateLines = PIPE_TYPES.filter(t=>(o.pipes||{})[t]>0).map(t=>{
+    const r = Number(rates[t])||0;
+    return `  ${t} × ${o.pipes[t]}${r?' @ ₹'+fmt(r)+' = ₹'+fmt(o.pipes[t]*r):''}`;
+  }).join('\n');
+  const orderPays = o.payments || [];
+  const collectedExtra = orderPays.reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const remaining = (Number(o.total)||0) - (Number(o.advance)||0) - collectedExtra;
+  const text = [
+    `*Hume Pipes — Tiptur | Bill*`,
+    ``,
+    `*Customer:* ${o.customer}${o.phone?' ('+o.phone+')':''}`,
+    o.address?`*Address:* ${o.address}${o.km?' (~'+o.km+'km)':''}` : '',
+    o.deliveryDate?`*Delivery date:* ${fmtDate(o.deliveryDate)}`:'',
+    ``,
+    `*Pipes:*`,
+    rateLines,
+    ``,
+    `*Total: ₹${fmt(o.total)}*`,
+    `Advance paid: ₹${fmt(o.advance)}`,
+    collectedExtra>0?`Additional paid: ₹${fmt(collectedExtra)}`:'',
+    remaining>0?`*Balance due: ₹${fmt(remaining)}*`:`*Fully paid ✓*`,
+    o.notes?`\nNote: ${o.notes}`:'',
+  ].filter(l=>l!==false&&l!==undefined&&l!=='').join('\n');
+  closeModal();
+  window.open('https://wa.me/'+encodeURIComponent(o.phone||'')+'?text='+encodeURIComponent(text), '_blank');
+}
+
+// ── ORDER PARTIAL PAYMENTS ─────────────────────────────────────────────────────
+function openOrderPayModal(orderId) {
+  const o = cache.orders.find(x=>x.id===orderId);
+  if(!o) return;
+  const collected = (o.payments||[]).reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const balance = (Number(o.total)||0) - (Number(o.advance)||0) - collected;
+  modal(`<div class="modal">
+    <div class="modal-header">
+      <h3>Collect Payment — ${esc(o.customer)}</h3>
+      <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="alert alert-info" style="margin-bottom:12px">
+        Total: <strong>₹${fmt(o.total)}</strong> &nbsp;·&nbsp; Advance: <strong>₹${fmt(o.advance)}</strong> &nbsp;·&nbsp; Balance: <strong style="color:${balance>0?'#a02020':'#3b8a2a'}">₹${fmt(balance)}</strong>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Date</label>
+          <input type="date" id="opay-date" value="${today()}">
+        </div>
+        <div class="form-group"><label>Amount (₹)</label>
+          <input type="number" id="opay-amt" min="0" placeholder="0" inputmode="numeric" ${balance>0?`value="${balance}"`:''}>
+        </div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Mode</label>
+          <select id="opay-mode">
+            <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Note <span style="font-size:11px;color:#aaa">(optional)</span></label>
+          <input type="text" id="opay-note" placeholder="e.g. reference number">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveOrderPayment('${orderId}')">Save payment</button>
+    </div>
+  </div>`);
+  setTimeout(()=>document.getElementById('opay-amt')?.focus(), 50);
+}
+
+async function saveOrderPayment(orderId) {
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if(btn) { btn.disabled=true; btn.textContent='Saving…'; }
+  const o   = cache.orders.find(x=>x.id===orderId);
+  if(!o) return;
+  const amt = parseFloat(document.getElementById('opay-amt').value||0);
+  if(!amt || amt<=0) { alert('Enter an amount'); if(btn){btn.disabled=false;btn.textContent='Save payment';} return; }
+  const collected = (o.payments||[]).reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const trueBalance = (Number(o.total)||0) - (Number(o.advance)||0) - collected;
+  if(amt > trueBalance + 1) { // allow ₹1 rounding
+    if(!confirm(`Payment ₹${fmt(amt)} exceeds balance ₹${fmt(trueBalance)}. Record as overpayment?`)) {
+      if(btn){btn.disabled=false;btn.textContent='Save payment';} return;
+    }
+  }
+  const newBalance = Math.max(0, trueBalance - amt);
+  const payments = [...(o.payments||[]), {
+    date: document.getElementById('opay-date').value,
+    amount: amt,
+    note: (document.getElementById('opay-mode').value + (document.getElementById('opay-note').value?' — '+document.getElementById('opay-note').value:'')).trim()
+  }];
+  try {
+    await col('orders').doc(orderId).update({ payments, balance: newBalance, paid: newBalance <= 0 });
+    closeModal();
+  } catch(e) {
+    alert('Save failed: '+e.message);
+    if(btn){btn.disabled=false;btn.textContent='Save payment';}
+  }
+}
+
 function shareOrder(orderId) {
   const o = cache.orders.find(x=>x.id===orderId);
   if(!o) return;
