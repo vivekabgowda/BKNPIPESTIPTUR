@@ -1557,12 +1557,19 @@ async function saveOrder(id) {
   PIPE_TYPES.forEach(t=>{ const v=Number(document.getElementById('pipe-'+t.replace(/\s+/g,'_'))?.value||0); if(v>0) pipes[t]=v; });
   const customer = document.getElementById('f-customer').value.trim();
   if(!customer) { alert('Customer name required'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
+  if(Object.keys(pipes).length === 0) { alert('Add at least one pipe type with quantity > 0'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
+  const orderDate = document.getElementById('f-orderDate').value;
+  if(!orderDate) { alert('Select an order date'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
   // Address: use visible search box value (works for both typed and dropdown-selected)
   const addressVisible = document.getElementById('f-hobli-search')?.value.trim();
   const addressHidden  = document.getElementById('f-address')?.value.trim();
   const address = addressVisible || addressHidden || '';
   const total   = Number(document.getElementById('f-total')?.value||0);
   const advance = Number(document.getElementById('f-advance')?.value||0);
+  if(total <= 0) { alert('Enter total amount'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
+  if(advance > total) { alert('Advance cannot exceed total amount'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
+  const deliveryDate = document.getElementById('f-deliveryDate').value;
+  if(deliveryDate && deliveryDate < orderDate) { alert('Delivery date cannot be before order date'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
   const existing = id ? cache.orders.find(o=>o.id===id) : null;
   const existingPayments = existing?.payments || [];
   const collectedExtra = existingPayments.reduce((s,p)=>s+(Number(p.amount)||0),0);
@@ -1571,8 +1578,8 @@ async function saveOrder(id) {
   if(route) saveRouteSuggestion(route);
   const data = {
     customer, phone: document.getElementById('f-phone').value.trim(),
-    orderDate: document.getElementById('f-orderDate').value,
-    deliveryDate: document.getElementById('f-deliveryDate').value,
+    orderDate,
+    deliveryDate,
     address, route,
     km: Number(document.getElementById('f-km').value)||0,
     total, advance, balance,
@@ -1909,6 +1916,8 @@ function qpAdj(key, delta) {
 async function saveQuickProd(id) {
   const btn = document.querySelector('.modal-footer .btn-primary');
   if(btn) { btn.disabled=true; btn.textContent='Saving…'; }
+  const prodDate = document.getElementById('qp-date').value;
+  if(!prodDate) { alert('Select a date'); if(btn){btn.disabled=false;btn.textContent='Save';} return; }
   const pipes = {}, rejects = {};
   PIPE_TYPES.forEach(t => {
     const key = t.replace(/\s/g,'_');
@@ -1917,9 +1926,12 @@ async function saveQuickProd(id) {
     if(v > 0) pipes[t] = v;
     if(r > 0) rejects[t] = r;
   });
+  if(Object.keys(pipes).length === 0) { alert('Log at least one pipe type with quantity > 0'); if(btn){btn.disabled=false;btn.textContent='Save';} return; }
+  const rejectError = PIPE_TYPES.find(t => (rejects[t]||0) > (pipes[t]||0));
+  if(rejectError) { alert(`Rejects for "${rejectError}" cannot exceed pipes produced`); if(btn){btn.disabled=false;btn.textContent='Save';} return; }
   try {
     await col('production').doc(id||uid()).set({
-      date: document.getElementById('qp-date').value,
+      date: prodDate,
       pipes, rejects,
       notes: document.getElementById('qp-notes').value
     });
@@ -3631,6 +3643,8 @@ async function saveMat(editId) {
   // When editing, category dropdown is disabled — read hidden field instead
   const catEl  = document.getElementById('mat-category');
   const cat    = (catEl?.disabled ? document.getElementById('mat-category-hidden')?.value : catEl?.value) || 'steel_wire';
+  const matDate = document.getElementById('mat-date').value;
+  if(!matDate) { alert('Select a date'); if(btn){btn.disabled=false;btn.textContent='Save';} return; }
   const isWire = cat === 'steel_wire';
   let data;
   if(isWire) {
@@ -3647,7 +3661,7 @@ async function saveMat(editId) {
       if(btn){btn.disabled=false;btn.textContent='Save';} return;
     }
     data = {
-      date: document.getElementById('mat-date').value, material:'steel_wire',
+      date: matDate, material:'steel_wire',
       sizes, totalAmt: parseFloat(document.getElementById('mat-amt')?.value||0)||0,
       supplier: document.getElementById('mat-supplier')?.value.trim()||'',
       note: document.getElementById('mat-note')?.value.trim()||''
@@ -3659,7 +3673,7 @@ async function saveMat(editId) {
       if(btn){btn.disabled=false;btn.textContent='Save';} return;
     }
     data = {
-      date: document.getElementById('mat-date').value, material: cat, qty,
+      date: matDate, material: cat, qty,
       rate:     parseFloat(document.getElementById('mat-rate')?.value||0)||0,
       totalAmt: parseFloat(document.getElementById('mat-amt')?.value||0)||0,
       supplier: document.getElementById('mat-supplier')?.value.trim()||'',
