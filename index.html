@@ -4440,80 +4440,64 @@ function renderGSTBilling() {
     </div>`}`;
 }
 
+let _gstRowSeq = 0;
+
 function openGSTInvoiceModal(id) {
-  const inv  = id ? (cache.gst_invoices||[]).find(i=>i.id===id) : null;
-  const year = gstFinYear(inv?.invoiceDate||today());
-  const invNo= inv ? inv.invoiceNo : nextInvoiceNo(year);
+  const inv        = id ? (cache.gst_invoices||[]).find(i=>i.id===id) : null;
+  const year       = gstFinYear(inv?.invoiceDate||today());
+  const invNo      = inv ? inv.invoiceNo : nextInvoiceNo(year);
   const supplyType = inv ? (inv.supplyType||'intrastate') : 'intrastate';
   const gstRate    = inv ? (inv.gstRate||18) : 18;
-  const existItems = inv ? inv.items : [];
-  const itemRows = PIPE_TYPES.map((t,i) => {
-    const ex   = existItems.find(x=>x.pipeType===t);
-    const qty  = ex ? (ex.qty||0) : 0;
-    const rate = ex ? (ex.rate||0) : (Number((cache.pipe_rates||{})[t])||0);
-    return `<tr>
-      <td style="padding:5px 8px;font-size:12px;white-space:nowrap">${esc(t)}</td>
-      <td style="padding:4px 6px"><input type="text" id="gi-hsn-${i}" value="${esc(ex?ex.hsn:'6810')}" style="width:58px;font-size:12px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
-      <td style="padding:4px 6px"><input type="number" id="gi-qty-${i}" value="${qty}" min="0" inputmode="numeric" style="width:64px;font-size:12px;padding:3px 5px;border:1px solid var(--border);border-radius:4px" oninput="gstRecalcRow(${i})"></td>
-      <td style="padding:4px 6px"><input type="number" id="gi-rate-${i}" value="${rate}" min="0" inputmode="numeric" style="width:80px;font-size:12px;padding:3px 5px;border:1px solid var(--border);border-radius:4px" oninput="gstRecalcRow(${i})"></td>
-      <td style="padding:5px 8px;text-align:right;font-size:13px;font-weight:600;min-width:80px" id="gi-taxval-${i}">₹${fmt(qty*rate)}</td>
-    </tr>`;
-  }).join('');
-  modal(`<div class="modal" style="max-width:700px;width:96vw">
+  _gstRowSeq = 0;
+  modal(`<div class="modal" style="max-width:620px;width:96vw">
     <div class="modal-header">
       <h3 style="font-size:15px;font-weight:600">${id?'Edit':'New'} GST Invoice</h3>
       <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
     </div>
-    <div class="modal-body" style="max-height:72vh;overflow-y:auto">
+    <div class="modal-body" style="max-height:74vh;overflow-y:auto">
       <div class="form-row cols-2">
         <div class="form-group"><label>Invoice No.</label><input type="text" id="gi-invno" value="${esc(invNo)}" style="font-weight:600"></div>
         <div class="form-group"><label>Invoice Date</label><input type="date" id="gi-date" value="${inv?.invoiceDate||today()}"></div>
       </div>
-      <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:12px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:10px">Customer Details</div>
-        <div class="form-row cols-2">
-          <div class="form-group"><label>Customer Name</label><input type="text" id="gi-customer" value="${esc(inv?.customer||'')}" placeholder="Full name"></div>
-          <div class="form-group"><label>Customer GSTIN <span style="font-size:11px;color:var(--muted)">(optional)</span></label><input type="text" id="gi-cgstin" value="${esc(inv?.customerGSTIN||'')}" placeholder="29XXXXX" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
-        </div>
-        <div class="form-group"><label>Customer Address</label><input type="text" id="gi-caddr" value="${esc(inv?.customerAddress||'')}" placeholder="Full address"></div>
-        <div class="form-row cols-2">
-          <div class="form-group"><label>Supply Type</label>
-            <select id="gi-supply" onchange="gstRecalcAll()">
-              <option value="intrastate" ${supplyType==='intrastate'?'selected':''}>Intra-state (CGST + SGST)</option>
-              <option value="interstate" ${supplyType==='interstate'?'selected':''}>Inter-state (IGST)</option>
-            </select>
-          </div>
-          <div class="form-group"><label>GST Rate</label>
-            <select id="gi-gstrate" onchange="gstRecalcAll()">
-              <option value="18" ${gstRate==18?'selected':''}>18% — RCC / Hume Pipes</option>
-              <option value="12" ${gstRate==12?'selected':''}>12%</option>
-              <option value="5"  ${gstRate==5 ?'selected':''}>5%</option>
-              <option value="0"  ${gstRate==0 ?'selected':''}>0% (Exempt)</option>
-            </select>
-          </div>
+      <div class="form-group"><label>Customer Name</label><input type="text" id="gi-customer" value="${esc(inv?.customer||'')}" placeholder="Customer name"></div>
+      <div class="form-group"><label>Billing Address</label><input type="text" id="gi-caddr" value="${esc(inv?.customerAddress||'')}" placeholder="Full address"></div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Customer GSTIN <span style="font-size:11px;color:var(--muted)">(optional)</span></label><input type="text" id="gi-cgstin" value="${esc(inv?.customerGSTIN||'')}" placeholder="29XXXXX" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"></div>
+        <div class="form-group"><label>Supply Type</label>
+          <select id="gi-supply" onchange="gstRecalcAll()">
+            <option value="intrastate" ${supplyType==='intrastate'?'selected':''}>Intra-state (CGST + SGST)</option>
+            <option value="interstate" ${supplyType==='interstate'?'selected':''}>Inter-state (IGST)</option>
+          </select>
         </div>
       </div>
-      <div style="background:var(--bg);border-radius:8px;padding:12px;margin-bottom:12px">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:10px">Items — HSN 6810 (RCC Hume Pipes)</div>
-        <div style="overflow-x:auto">
-          <table style="width:100%;border-collapse:collapse">
-            <thead><tr style="background:var(--border-light)">
-              <th style="padding:6px 8px;text-align:left;font-size:11px;font-weight:600">Pipe Type</th>
-              <th style="padding:6px 8px;font-size:11px;font-weight:600">HSN</th>
-              <th style="padding:6px 8px;font-size:11px;font-weight:600">Qty (Nos)</th>
-              <th style="padding:6px 8px;font-size:11px;font-weight:600">Rate (₹)</th>
-              <th style="padding:6px 8px;text-align:right;font-size:11px;font-weight:600">Taxable Value</th>
-            </tr></thead>
-            <tbody>${itemRows}</tbody>
-          </table>
-        </div>
-        <div style="margin-top:10px;padding:10px;background:var(--white);border-radius:6px;border:1px solid var(--border)">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px"><span style="color:var(--muted)">Taxable Total</span><span id="gi-taxable-total" style="font-weight:600">₹0</span></div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px" id="gi-cgst-row"><span id="gi-cgst-lbl">CGST (9%)</span><span id="gi-cgst-val">₹0</span></div>
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px" id="gi-sgst-row"><span id="gi-sgst-lbl">SGST (9%)</span><span id="gi-sgst-val">₹0</span></div>
-          <div style="display:none;justify-content:space-between;margin-bottom:4px;font-size:13px" id="gi-igst-row"><span id="gi-igst-lbl">IGST (18%)</span><span id="gi-igst-val">₹0</span></div>
-          <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;padding-top:8px;border-top:1px solid var(--border)"><span>Grand Total</span><span id="gi-grand-total" style="color:var(--brand)">₹0</span></div>
-        </div>
+      <div class="form-group" style="max-width:200px"><label>GST Rate</label>
+        <select id="gi-gstrate" onchange="gstRecalcAll()">
+          <option value="18" ${gstRate==18?'selected':''}>18% (RCC Pipes)</option>
+          <option value="12" ${gstRate==12?'selected':''}>12%</option>
+          <option value="5"  ${gstRate==5 ?'selected':''}>5%</option>
+          <option value="0"  ${gstRate==0 ?'selected':''}>0% (Exempt)</option>
+        </select>
+      </div>
+      <div style="margin-bottom:10px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px">Pipes (HSN 6810)</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="background:var(--bg)">
+            <th style="padding:6px 8px;text-align:left;font-size:11px;font-weight:600;border-bottom:1px solid var(--border)">Pipe Type</th>
+            <th style="padding:6px 8px;font-size:11px;font-weight:600;border-bottom:1px solid var(--border)">Qty</th>
+            <th style="padding:6px 8px;font-size:11px;font-weight:600;border-bottom:1px solid var(--border)">Rate (₹)</th>
+            <th style="padding:6px 8px;text-align:right;font-size:11px;font-weight:600;border-bottom:1px solid var(--border)">Amount</th>
+            <th style="border-bottom:1px solid var(--border)"></th>
+          </tr></thead>
+          <tbody id="gst-items-tbody"></tbody>
+        </table>
+        <button type="button" onclick="gstAddRow()" style="margin-top:8px;font-size:12px;padding:5px 12px;border:1px dashed var(--brand);background:var(--brand-light);color:var(--brand);border-radius:6px;cursor:pointer"><i class="ti ti-plus"></i> Add pipe</button>
+      </div>
+      <div style="padding:10px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--border);margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px"><span style="color:var(--muted)">Taxable Total</span><span id="gi-taxable-total" style="font-weight:600">₹0</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px" id="gi-cgst-row"><span id="gi-cgst-lbl">CGST (9%)</span><span id="gi-cgst-val">₹0</span></div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:13px" id="gi-sgst-row"><span id="gi-sgst-lbl">SGST (9%)</span><span id="gi-sgst-val">₹0</span></div>
+        <div style="display:none;justify-content:space-between;margin-bottom:4px;font-size:13px" id="gi-igst-row"><span id="gi-igst-lbl">IGST (18%)</span><span id="gi-igst-val">₹0</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;padding-top:8px;border-top:1px solid var(--border)"><span>Grand Total</span><span id="gi-grand-total" style="color:var(--brand)">₹0</span></div>
       </div>
       <div class="form-group"><label>Notes <span style="font-size:11px;color:var(--muted)">(optional)</span></label><input type="text" id="gi-notes" value="${esc(inv?.notes||'')}" placeholder="e.g. Against PO No. 123"></div>
     </div>
@@ -4522,7 +4506,42 @@ function openGSTInvoiceModal(id) {
       <button class="btn-primary" onclick="saveGSTInvoice('${id||''}')">Save Invoice</button>
     </div>
   </div>`);
-  setTimeout(gstRecalcAll, 60);
+  // Pre-fill rows from existing invoice or add one blank row
+  const seedItems = inv ? (inv.items||[]) : [];
+  if(seedItems.length) { seedItems.forEach(it => gstAddRow(it.pipeType, it.qty, it.rate)); }
+  else                 { gstAddRow(); }
+}
+
+function gstAddRow(pipeType, qty, rate) {
+  _gstRowSeq++;
+  const i       = _gstRowSeq;
+  const pipeOpts = PIPE_TYPES.map(t=>`<option value="${esc(t)}" ${t===(pipeType||'')?'selected':''}>${esc(t)}</option>`).join('');
+  const defRate  = rate !== undefined ? rate : (Number((cache.pipe_rates||{})[PIPE_TYPES[0]])||0);
+  const tr = document.createElement('tr');
+  tr.id = 'gst-row-'+i;
+  tr.innerHTML = `
+    <td style="padding:4px 6px">
+      <select id="gi-type-${i}" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;width:100%">${pipeOpts}</select>
+    </td>
+    <td style="padding:4px 6px">
+      <input type="number" id="gi-qty-${i}" value="${qty||''}" min="1" inputmode="numeric" placeholder="0"
+        style="width:64px;font-size:12px;padding:4px 5px;border:1px solid var(--border);border-radius:4px" oninput="gstRecalcRow(${i})">
+    </td>
+    <td style="padding:4px 6px">
+      <input type="number" id="gi-rate-${i}" value="${defRate||''}" min="0" inputmode="numeric" placeholder="0"
+        style="width:90px;font-size:12px;padding:4px 5px;border:1px solid var(--border);border-radius:4px" oninput="gstRecalcRow(${i})">
+    </td>
+    <td style="padding:4px 8px;text-align:right;font-size:13px;font-weight:600;white-space:nowrap" id="gi-taxval-${i}">₹${fmt((qty||0)*(defRate||0))}</td>
+    <td style="padding:4px 4px;text-align:center">
+      <button type="button" onclick="gstRemoveRow(${i})" style="border:none;background:none;cursor:pointer;color:var(--muted);font-size:18px;line-height:1;padding:0 4px" title="Remove">×</button>
+    </td>`;
+  document.getElementById('gst-items-tbody').appendChild(tr);
+  gstRecalcAll();
+}
+
+function gstRemoveRow(i) {
+  const row = document.getElementById('gst-row-'+i);
+  if(row) { row.remove(); gstRecalcAll(); }
 }
 
 function gstRecalcRow(i) {
@@ -4535,7 +4554,9 @@ function gstRecalcRow(i) {
 
 function gstRecalcAll() {
   let taxable = 0;
-  PIPE_TYPES.forEach((_,i) => {
+  const tbody = document.getElementById('gst-items-tbody');
+  if(tbody) [...tbody.querySelectorAll('tr[id^="gst-row-"]')].forEach(row => {
+    const i    = row.id.replace('gst-row-','');
     const qty  = parseFloat(document.getElementById('gi-qty-'+i)?.value||0);
     const rate = parseFloat(document.getElementById('gi-rate-'+i)?.value||0);
     taxable += qty*rate;
@@ -4574,15 +4595,14 @@ async function saveGSTInvoice(id) {
   if(!invNo)    { alert('Invoice number required');  if(btn){btn.disabled=false;btn.textContent='Save Invoice';} return; }
   if(!invDate)  { alert('Select invoice date');      if(btn){btn.disabled=false;btn.textContent='Save Invoice';} return; }
   if(!customer) { alert('Customer name required');   if(btn){btn.disabled=false;btn.textContent='Save Invoice';} return; }
-  const items = PIPE_TYPES.map((t,i) => ({
-    pipeType: t,
-    hsn:  document.getElementById('gi-hsn-'+i)?.value.trim()||'6810',
-    qty:  parseFloat(document.getElementById('gi-qty-'+i)?.value||0),
-    unit: 'Nos',
-    rate: parseFloat(document.getElementById('gi-rate-'+i)?.value||0),
-    taxableValue: parseFloat(document.getElementById('gi-qty-'+i)?.value||0)*parseFloat(document.getElementById('gi-rate-'+i)?.value||0)
-  })).filter(item=>item.qty>0);
-  if(items.length===0){ alert('Add at least one pipe type with quantity > 0'); if(btn){btn.disabled=false;btn.textContent='Save Invoice';} return; }
+  const tbody = document.getElementById('gst-items-tbody');
+  const items = [...(tbody?.querySelectorAll('tr[id^="gst-row-"]')||[])].map(row => {
+    const i    = row.id.replace('gst-row-','');
+    const qty  = parseFloat(document.getElementById('gi-qty-'+i)?.value||0);
+    const rate = parseFloat(document.getElementById('gi-rate-'+i)?.value||0);
+    return { pipeType: document.getElementById('gi-type-'+i)?.value||'', hsn:'6810', qty, unit:'Nos', rate, taxableValue: qty*rate };
+  }).filter(item=>item.qty>0&&item.pipeType);
+  if(items.length===0){ alert('Add at least one pipe with quantity > 0'); if(btn){btn.disabled=false;btn.textContent='Save Invoice';} return; }
   const supplyType   = document.getElementById('gi-supply')?.value||'intrastate';
   const gstRate      = parseFloat(document.getElementById('gi-gstrate')?.value||18);
   const taxableTotal = items.reduce((s,x)=>s+x.taxableValue,0);
