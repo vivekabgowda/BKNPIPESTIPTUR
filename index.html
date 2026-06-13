@@ -227,23 +227,6 @@ tr:hover td { background:#f8fafc; }
   table { font-size:11px; }
   th,td { padding:4px 8px !important; }
 }
-#ai-fab { position:fixed; bottom:80px; right:16px; width:52px; height:52px; border-radius:50%; background:linear-gradient(135deg,#1e40af,#3b82f6); color:#fff; border:none; cursor:pointer; font-size:22px; box-shadow:0 4px 14px rgba(30,64,175,0.4); z-index:200; display:none; align-items:center; justify-content:center; transition:transform 0.2s; }
-#ai-fab:hover { transform:scale(1.1); }
-#ai-fab.visible { display:flex; }
-#ai-panel { position:fixed; bottom:0; right:0; width:360px; max-width:100vw; height:520px; max-height:90vh; background:#fff; border-radius:16px 0 0 0; box-shadow:0 -4px 30px rgba(0,0,0,0.18); z-index:199; display:flex; flex-direction:column; transform:translateY(110%); transition:transform 0.3s ease; }
-#ai-panel.open { transform:translateY(0); }
-#ai-panel-header { background:linear-gradient(135deg,#1e40af,#3b82f6); color:#fff; padding:14px 16px; border-radius:16px 0 0 0; display:flex; align-items:center; gap:10px; flex-shrink:0; }
-#ai-panel-header h3 { font-size:14px; font-weight:600; flex:1; margin:0; }
-#ai-msgs { flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:10px; }
-.ai-msg-user { background:#eff6ff; border-radius:12px 12px 4px 12px; padding:9px 12px; font-size:13px; align-self:flex-end; max-width:82%; color:#1e293b; word-break:break-word; }
-.ai-msg-bot { background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px 12px 12px 4px; padding:9px 12px; font-size:13px; align-self:flex-start; max-width:92%; color:#1e293b; line-height:1.55; word-break:break-word; white-space:pre-wrap; }
-.ai-msg-bot.typing { color:#64748b; font-style:italic; }
-#ai-input-row { padding:10px 12px; border-top:1px solid #e2e8f0; display:flex; gap:8px; flex-shrink:0; background:#fff; border-radius:0 0 0 0; }
-#ai-input { flex:1; padding:9px 12px; border:1px solid #e2e8f0; border-radius:20px; font-size:13px; font-family:var(--font); outline:none; }
-#ai-input:focus { border-color:#3b82f6; }
-#ai-send { padding:9px 16px; background:#1e40af; color:#fff; border:none; border-radius:20px; cursor:pointer; font-size:13px; font-weight:600; }
-#ai-send:disabled { background:#93c5fd; cursor:default; }
-@media(max-width:480px){ #ai-panel{ width:100vw; height:72vh; border-radius:16px 16px 0 0; } #ai-panel-header{ border-radius:16px 16px 0 0; } #ai-fab{ bottom:70px; right:12px; width:48px; height:48px; } }
 `;document.head.appendChild(s);})();
 </script>
 </head>
@@ -377,24 +360,6 @@ service cloud.firestore {
   </nav>
 
 <div id="modal-container"></div>
-
-<button id="ai-fab" onclick="toggleAIChat()" title="Ask BKN AI Assistant">
-  <i class="ti ti-robot"></i>
-</button>
-<div id="ai-panel">
-  <div id="ai-panel-header">
-    <i class="ti ti-robot" style="font-size:18px"></i>
-    <h3>BKN AI Assistant</h3>
-    <button onclick="toggleAIChat()" style="background:none;border:none;color:#fff;cursor:pointer;font-size:22px;padding:0 4px;line-height:1">&times;</button>
-  </div>
-  <div id="ai-msgs">
-    <div class="ai-msg-bot">Hi! I can answer questions about your orders, production, expenses, inventory and GST invoices. What would you like to know?</div>
-  </div>
-  <div id="ai-input-row">
-    <input id="ai-input" placeholder="Ask anything about your factory…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAIMsg();}">
-    <button id="ai-send" onclick="sendAIMsg()">Send</button>
-  </div>
-</div>
 
 <script>
 
@@ -823,7 +788,6 @@ async function initApp(user) {
   setSyncStatus(navigator.onLine);
   renderNav();
   goto('dashboard');
-  showAIFab();
 }
 
 function setSyncStatus(online) {
@@ -4354,22 +4318,6 @@ function renderSettings() {
         <div class="form-group"><label>Bank Details <span style="font-size:11px;color:var(--muted)">(optional, shown on invoice)</span></label><input type="text" id="gst-prof-bank" value="${esc((cache.gst_profile||{}).bankDetails||'')}" placeholder="Bank name, A/c No., IFSC"></div>
       </div>
       <button class="btn-primary" onclick="saveGSTProfile(this)">Save Profile</button>
-    </div>
-    <div class="card" style="margin-bottom:0.75rem">
-      <div style="font-size:14px;font-weight:600;margin-bottom:4px">AI Assistant
-        <span style="font-size:12px;font-weight:400;color:var(--muted);margin-left:8px">Powered by Google Gemini (free tier)</span>
-      </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:10px;line-height:1.6">
-        Get a free API key at <strong>aistudio.google.com</strong> → Create API key. The key is saved only on this device and never uploaded to Firebase.
-      </div>
-      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-        <input type="text" id="gemini-key-input" placeholder="AIzaSy..."
-          value="${esc(localStorage.getItem('hpf_gemini_key')||'')}"
-          style="flex:1;min-width:220px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-family:monospace">
-        <button class="btn-primary" onclick="saveGeminiKey()">Save Key</button>
-        ${localStorage.getItem('hpf_gemini_key')?`<button onclick="clearGeminiKey()" style="padding:7px 14px;border:1px solid var(--danger);color:var(--danger);background:var(--danger-bg);border-radius:var(--radius);cursor:pointer;font-size:13px">Remove</button>`:''}
-      </div>
-      ${localStorage.getItem('hpf_gemini_key')?`<div style="margin-top:10px;font-size:12px;color:var(--success);display:flex;align-items:center;gap:6px"><i class="ti ti-circle-check"></i> API key saved — AI chat button is active (bottom-right of screen)</div>`:''}
     </div>`;
 }
 
@@ -5380,152 +5328,6 @@ function shareOrder(orderId) {
   window.open('https://wa.me/?text='+encodeURIComponent(text), '_blank');
 }
 
-// ── AI CHAT ───────────────────────────────────────────────────────────────────
-let _aiHistory = [];
-
-function toggleAIChat() {
-  const panel = document.getElementById('ai-panel');
-  const isOpen = panel.classList.toggle('open');
-  if(isOpen) setTimeout(()=>document.getElementById('ai-input')?.focus(), 320);
-}
-
-function showAIFab() {
-  document.getElementById('ai-fab')?.classList.add('visible');
-}
-
-function buildAIContext() {
-  const now = today();
-  const mo  = now.slice(0, 7);
-
-  const orders       = cache.orders || [];
-  const pending      = orders.filter(o => !o.paid);
-  const moOrders     = orders.filter(o => (o.orderDate||'').startsWith(mo));
-  const expenses     = (cache.expenses||[]).filter(e => (e.date||'').startsWith(mo));
-  const totalExp     = expenses.reduce((s,e) => s+(Number(e.amount)||0), 0);
-  const gstInvs      = cache.gst_invoices || [];
-  const moInvs       = gstInvs.filter(i => (i.invoiceDate||'').startsWith(mo));
-  const prod         = (cache.production||[]).filter(p => p.date >= mo+'-01');
-
-  const prodSummary  = {};
-  prod.forEach(p => PIPE_TYPES.forEach(t => { if((p.pipes||{})[t]) prodSummary[t]=(prodSummary[t]||0)+p.pipes[t]; }));
-
-  const expBreakdown = expenses.reduce((acc,e) => { acc[e.category]=(acc[e.category]||0)+(Number(e.amount)||0); return acc; },{});
-
-  const recentOrders = [...orders].sort((a,b)=>(b.orderDate||'').localeCompare(a.orderDate||'')).slice(0,15).map(o=>({
-    customer: o.customer, date: o.orderDate, pipes: o.pipes,
-    total: o.total, advance: o.advance, balance: o.balance,
-    status: o.status, paid: o.paid
-  }));
-
-  return JSON.stringify({
-    factory:          'BKN RCC SPUN PIPES, Tiptur, Karnataka, India',
-    today:            now,
-    currentMonth:     mo,
-    orders: {
-      totalAllTime:     orders.length,
-      pendingCount:     pending.length,
-      pendingBalance:   pending.reduce((s,o)=>s+(Number(o.balance)||0),0),
-      thisMonthCount:   moOrders.length,
-      thisMonthRevenue: moOrders.reduce((s,o)=>s+(Number(o.total)||0),0),
-      recent:           recentOrders
-    },
-    production: {
-      thisMonthByType:  prodSummary,
-      daysRecorded:     prod.length
-    },
-    expenses: {
-      thisMonthTotal:   totalExp,
-      byCategory:       expBreakdown
-    },
-    gstInvoices: {
-      totalAllTime:     gstInvs.length,
-      thisMonthCount:   moInvs.length,
-      thisMonthRevenue: moInvs.reduce((s,i)=>s+(Number(i.grandTotal)||0),0)
-    },
-    quotations: {
-      total: (cache.quotations||[]).length
-    }
-  }, null, 2);
-}
-
-async function sendAIMsg() {
-  const key = localStorage.getItem('hpf_gemini_key');
-  if(!key) {
-    appendAIMsg('bot', 'Please add your Gemini API key in Settings → AI Assistant to enable this feature. You can get a free key at aistudio.google.com');
-    return;
-  }
-  const input = document.getElementById('ai-input');
-  const text  = (input?.value||'').trim();
-  if(!text) return;
-
-  input.value = '';
-  appendAIMsg('user', text);
-
-  const sendBtn = document.getElementById('ai-send');
-  if(sendBtn) sendBtn.disabled = true;
-  const typingEl = appendAIMsg('bot', 'Thinking…', true);
-
-  _aiHistory.push({ role:'user', parts:[{text}] });
-
-  const systemPrompt = `You are a helpful business assistant for BKN RCC SPUN PIPES, a concrete pipe manufacturing factory in Tiptur, Karnataka, India.
-Answer questions based on the live factory data below. Be concise and practical. Use plain text (no markdown bullets or headers). Use Indian number format (lakhs, crores) where appropriate. If you cannot answer from the data, say so honestly.
-
-LIVE FACTORY DATA:
-${buildAIContext()}`;
-
-  try {
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${encodeURIComponent(key)}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          system_instruction: { parts:[{ text: systemPrompt }] },
-          contents: _aiHistory
-        })
-      }
-    );
-    const data = await resp.json();
-    if(!resp.ok) throw new Error(data.error?.message || 'API error '+resp.status);
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response received.';
-    _aiHistory.push({ role:'model', parts:[{text:reply}] });
-    if(typingEl) typingEl.remove();
-    appendAIMsg('bot', reply);
-  } catch(e) {
-    if(typingEl) typingEl.remove();
-    let msg = 'Error: ' + e.message;
-    if(e.message.includes('API_KEY_INVALID') || e.message.includes('400')) msg = 'Invalid API key. Please check your key in Settings.';
-    appendAIMsg('bot', msg);
-  } finally {
-    if(sendBtn) sendBtn.disabled = false;
-    document.getElementById('ai-input')?.focus();
-  }
-}
-
-function appendAIMsg(role, text, isTyping=false) {
-  const msgs = document.getElementById('ai-msgs');
-  if(!msgs) return null;
-  const div = document.createElement('div');
-  div.className = role==='user' ? 'ai-msg-user' : ('ai-msg-bot'+(isTyping?' typing':''));
-  div.textContent = text;
-  msgs.appendChild(div);
-  msgs.scrollTop = msgs.scrollHeight;
-  return div;
-}
-
-function saveGeminiKey() {
-  const key = document.getElementById('gemini-key-input')?.value.trim();
-  if(!key) { alert('Enter your Gemini API key'); return; }
-  localStorage.setItem('hpf_gemini_key', key);
-  const el = document.getElementById('gemini-key-input');
-  if(el) { el.style.borderColor='var(--success)'; setTimeout(()=>{ el.style.borderColor=''; renderSettings(); },1200); }
-}
-
-function clearGeminiKey() {
-  if(!confirm('Remove saved API key?')) return;
-  localStorage.removeItem('hpf_gemini_key');
-  renderSettings();
-}
 </script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
