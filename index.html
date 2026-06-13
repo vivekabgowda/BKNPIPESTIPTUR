@@ -4316,7 +4316,7 @@ function renderSettings() {
         <div class="form-group"><label>Phone</label><input type="text" id="gst-prof-phone" value="${esc((cache.gst_profile||{}).phone||'')}" placeholder="Phone number"></div>
         <div class="form-group"><label>Bank Details <span style="font-size:11px;color:var(--muted)">(optional, shown on invoice)</span></label><input type="text" id="gst-prof-bank" value="${esc((cache.gst_profile||{}).bankDetails||'')}" placeholder="Bank name, A/c No., IFSC"></div>
       </div>
-      <button class="btn-primary" onclick="saveGSTProfile()">Save Profile</button>
+      <button class="btn-primary" onclick="saveGSTProfile(this)">Save Profile</button>
     </div>`;
 }
 
@@ -4972,7 +4972,7 @@ function openGSTInvoicePrint(id) {
   else   { alert('Popup blocked — please allow popups for this site to view the invoice.'); }
 }
 
-async function saveGSTProfile() {
+async function saveGSTProfile(btn) {
   const data = {
     gstin:       (document.getElementById('gst-prof-gstin')?.value.trim()||'').toUpperCase(),
     pan:         (document.getElementById('gst-prof-pan')?.value.trim()||'').toUpperCase(),
@@ -4983,7 +4983,6 @@ async function saveGSTProfile() {
   try {
     await firestoreDb.collection('meta').doc('gst_profile').set(data);
     cache.gst_profile = data;
-    const btn = event.target;
     btn.textContent='Saved!'; btn.style.background='var(--success)';
     setTimeout(()=>{ btn.textContent='Save Profile'; btn.style.background=''; },1400);
   } catch(e) { alert('Save failed: '+e.message); }
