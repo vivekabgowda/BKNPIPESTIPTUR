@@ -4405,27 +4405,41 @@ function renderGSTBilling() {
   else                            renderQuotationTab();
 }
 
+let gstFromDate = '';
+let gstToDate   = '';
+
 function renderGSTInvoiceTab() {
   const year     = gstFinYear(today());
-  const invoices = [...(cache.gst_invoices||[])].sort((a,b)=>(b.invoiceDate||'').localeCompare(a.invoiceDate||''));
+  const invoices = [...(cache.gst_invoices||[])].sort((a,b)=>(a.invoiceDate||'').localeCompare(b.invoiceDate||''));
   const allYears = [...new Set(invoices.map(i=>gstFinYear(i.invoiceDate)).filter(Boolean))];
   if(!gstInvoiceFilter) gstInvoiceFilter = allYears[0]||year;
-  const filtered    = invoices.filter(i=>gstFinYear(i.invoiceDate)===gstInvoiceFilter);
+  const yearFiltered = invoices.filter(i=>gstFinYear(i.invoiceDate)===gstInvoiceFilter);
+  const filtered = yearFiltered.filter(i=>{
+    if(gstFromDate && i.invoiceDate < gstFromDate) return false;
+    if(gstToDate   && i.invoiceDate > gstToDate)   return false;
+    return true;
+  });
   const totalTaxable= filtered.reduce((s,i)=>s+(Number(i.taxableTotal)||0),0);
   const totalGST    = filtered.reduce((s,i)=>s+(Number(i.gstAmount)||0),0);
   const totalGrand  = filtered.reduce((s,i)=>s+(Number(i.grandTotal)||0),0);
   const yearOpts    = [...new Set([year,...allYears])].map(y=>`<option value="${y}" ${gstInvoiceFilter===y?'selected':''}>${y}</option>`).join('');
   document.getElementById('gst-tab-content').innerHTML = `
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:1rem;flex-wrap:wrap">
-      <span style="font-size:13px;font-weight:600;color:var(--muted)">Financial Year:</span>
-      <select style="font-size:13px;padding:5px 10px" onchange="gstInvoiceFilter=this.value;renderGSTInvoiceTab()">${yearOpts}</select>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+      <span style="font-size:13px;font-weight:600;color:var(--muted)">Year:</span>
+      <select style="font-size:13px;padding:5px 10px" onchange="gstInvoiceFilter=this.value;gstFromDate='';gstToDate='';renderGSTInvoiceTab()">${yearOpts}</select>
+      <span style="font-size:13px;font-weight:600;color:var(--muted);margin-left:4px">From:</span>
+      <input type="date" value="${gstFromDate}" style="font-size:13px;padding:4px 8px" onchange="gstFromDate=this.value;renderGSTInvoiceTab()">
+      <span style="font-size:13px;font-weight:600;color:var(--muted)">To:</span>
+      <input type="date" value="${gstToDate}" style="font-size:13px;padding:4px 8px" onchange="gstToDate=this.value;renderGSTInvoiceTab()">
+      ${gstFromDate||gstToDate?`<button class="btn-sm" onclick="gstFromDate='';gstToDate='';renderGSTInvoiceTab()">✕ Clear</button>`:''}
+      ${filtered.length>1?`<button class="btn-sm" style="margin-left:auto;color:var(--brand);border-color:var(--brand)" onclick="printAllGSTInvoices()"><i class="ti ti-printer"></i> Print All (${filtered.length})</button>`:''}
     </div>
     ${filtered.length?`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1rem">
       <div class="stat-card"><div class="stat-label">Taxable Value</div><div class="stat-value">₹${fmt(totalTaxable)}</div></div>
       <div class="stat-card"><div class="stat-label">Total GST</div><div class="stat-value">₹${fmt(totalGST)}</div></div>
       <div class="stat-card"><div class="stat-label">Grand Total</div><div class="stat-value">₹${fmt(totalGrand)}</div></div>
     </div>`:''}
-    ${filtered.length===0?`<div class="card empty-state"><i class="ti ti-file-invoice"></i>No GST invoices for ${esc(gstInvoiceFilter)}</div>`:`
+    ${filtered.length===0?`<div class="card empty-state"><i class="ti ti-file-invoice"></i>No invoices found for this range</div>`:`
     <div class="card" style="padding:0;overflow:hidden">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="background:var(--bg);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)">
@@ -4454,6 +4468,129 @@ function renderGSTInvoiceTab() {
         </tr>`).join('')}</tbody>
       </table>
     </div>`}`;
+}
+
+function printAllGSTInvoices() {
+  const invoices = [...(cache.gst_invoices||[])].sort((a,b)=>(a.invoiceDate||'').localeCompare(b.invoiceDate||''));
+  const yearFiltered = invoices.filter(i=>gstFinYear(i.invoiceDate)===gstInvoiceFilter);
+  const filtered = yearFiltered.filter(i=>{
+    if(gstFromDate && i.invoiceDate < gstFromDate) return false;
+    if(gstToDate   && i.invoiceDate > gstToDate)   return false;
+    return true;
+  });
+  if(!filtered.length) return;
+  const p = cache.gst_profile||{};
+  const totalTaxable = filtered.reduce((s,i)=>s+(Number(i.taxableTotal)||0),0);
+  const totalGST     = filtered.reduce((s,i)=>s+(Number(i.gstAmount)||0),0);
+  const totalGrand   = filtered.reduce((s,i)=>s+(Number(i.grandTotal)||0),0);
+  const rangeLabel   = (gstFromDate||gstToDate)
+    ? `${gstFromDate?fmtDate(gstFromDate):'Start'} to ${gstToDate?fmtDate(gstToDate):'Today'}`
+    : `FY ${gstInvoiceFilter}`;
+  const invoicePages = filtered.map((inv,idx)=>{
+    const intra = inv.supplyType==='intrastate';
+    const rows = (inv.items||[]).map((item,i)=>`
+      <tr>
+        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:center">${i+1}</td>
+        <td style="padding:6px 8px;border:1px solid #cbd5e1">${esc(item.pipeType)} RCC Spun Pipe</td>
+        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:center">${esc(item.hsn||'6810')}</td>
+        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:center">${item.qty}</td>
+        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:right">&#8377;${fmt(item.rate)}</td>
+        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:right">&#8377;${fmt(item.taxableValue)}</td>
+      </tr>`).join('');
+    const taxRows = intra
+      ? `<tr><td colspan="5" style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">CGST @ ${inv.gstRate/2}%</td><td style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">&#8377;${fmt(inv.cgst)}</td></tr>
+         <tr><td colspan="5" style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">SGST @ ${inv.gstRate/2}%</td><td style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">&#8377;${fmt(inv.sgst)}</td></tr>`
+      : `<tr><td colspan="5" style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">IGST @ ${inv.gstRate}%</td><td style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">&#8377;${fmt(inv.igst)}</td></tr>`;
+    return `<div style="page-break-after:${idx<filtered.length-1?'always':'auto'};padding:20px">
+      <div style="border:2px solid #1e40af;padding:22px;max-width:800px;margin:0 auto">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;padding-bottom:12px;border-bottom:2px solid #e2e8f0">
+          <div>
+            <div style="font-size:17px;font-weight:700;color:#1e40af">BKN RCC SPUN PIPES</div>
+            <div style="font-size:11px;color:#475569;margin-top:2px">${esc(p.address||'Tiptur, Karnataka')}</div>
+            ${p.phone?`<div style="font-size:11px;color:#475569">Ph: ${esc(p.phone)}</div>`:''}
+            ${p.gstin?`<div style="font-size:11px;margin-top:2px"><strong>GSTIN:</strong> ${esc(p.gstin)}</div>`:''}
+          </div>
+          <div style="text-align:right">
+            <div style="font-size:17px;font-weight:700;color:#1e40af">TAX INVOICE</div>
+            <div style="font-size:12px;margin-top:6px"><strong>${esc(inv.invoiceNo)}</strong></div>
+            <div style="font-size:12px">${fmtDate(inv.invoiceDate)}</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:8px 10px">
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:4px">Bill To</div>
+            <div style="font-size:13px;font-weight:700">${esc(inv.customer)}</div>
+            ${inv.customerAddress?`<div style="font-size:11px;color:#475569">${esc(inv.customerAddress)}</div>`:''}
+            ${inv.customerGSTIN?`<div style="font-size:11px"><strong>GSTIN:</strong> ${esc(inv.customerGSTIN)}</div>`:''}
+          </div>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:8px 10px">
+            <div style="font-size:11px"><strong>Supply:</strong> ${intra?'Intra-state':'Inter-state'}</div>
+            <div style="font-size:11px;margin-top:3px"><strong>GST Rate:</strong> ${inv.gstRate}%</div>
+          </div>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead><tr style="background:#1e40af;color:#fff">
+            <th style="padding:6px 8px;width:28px">#</th><th style="padding:6px 8px;text-align:left">Description</th>
+            <th style="padding:6px 8px;width:58px">HSN</th><th style="padding:6px 8px;width:46px">Qty</th>
+            <th style="padding:6px 8px;width:80px;text-align:right">Rate</th><th style="padding:6px 8px;width:88px;text-align:right">Amount</th>
+          </tr></thead>
+          <tbody>${rows}
+            <tr style="background:#f8fafc"><td colspan="5" style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;font-weight:600">Taxable Value</td><td style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;font-weight:600">&#8377;${fmt(inv.taxableTotal)}</td></tr>
+            ${taxRows}
+            <tr style="background:#eff6ff"><td colspan="5" style="padding:7px 8px;border:2px solid #1e40af;text-align:right;font-weight:700;font-size:13px">Grand Total</td><td style="padding:7px 8px;border:2px solid #1e40af;text-align:right;font-weight:700;font-size:13px;color:#1e40af">&#8377;${fmt(inv.grandTotal)}</td></tr>
+          </tbody>
+        </table>
+        <div style="font-size:10px;color:#475569;margin-top:5px;font-style:italic">Amount: <strong>${numToWords(inv.grandTotal)}</strong></div>
+      </div>
+    </div>`;
+  }).join('');
+  const summaryRows = filtered.map((inv,i)=>`
+    <tr style="border-bottom:1px solid #e2e8f0">
+      <td style="padding:6px 10px;text-align:center">${i+1}</td>
+      <td style="padding:6px 10px;font-weight:600;color:#1e40af">${esc(inv.invoiceNo)}</td>
+      <td style="padding:6px 10px">${fmtDate(inv.invoiceDate)}</td>
+      <td style="padding:6px 10px">${esc(inv.customer)}</td>
+      <td style="padding:6px 10px;text-align:right">&#8377;${fmt(inv.taxableTotal)}</td>
+      <td style="padding:6px 10px;text-align:right">&#8377;${fmt(inv.gstAmount)}</td>
+      <td style="padding:6px 10px;text-align:right;font-weight:600">&#8377;${fmt(inv.grandTotal)}</td>
+    </tr>`).join('');
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+  <title>GST Invoices &#8212; ${esc(rangeLabel)}</title>
+  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:12px;color:#0f172a;background:#fff}@media print{.no-print{display:none!important}}</style>
+  </head><body>
+  ${invoicePages}
+  <div style="page-break-before:always;padding:28px">
+    <div style="max-width:800px;margin:0 auto;border:2px solid #1e40af;padding:24px">
+      <div style="font-size:16px;font-weight:700;color:#1e40af;margin-bottom:4px">BKN RCC SPUN PIPES</div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:14px">GST Invoice Summary &#8212; ${esc(rangeLabel)}</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#1e40af;color:#fff">
+          <th style="padding:7px 10px;width:32px">#</th>
+          <th style="padding:7px 10px;text-align:left">Invoice No.</th>
+          <th style="padding:7px 10px;text-align:left">Date</th>
+          <th style="padding:7px 10px;text-align:left">Customer</th>
+          <th style="padding:7px 10px;text-align:right">Taxable</th>
+          <th style="padding:7px 10px;text-align:right">GST</th>
+          <th style="padding:7px 10px;text-align:right">Grand Total</th>
+        </tr></thead>
+        <tbody>${summaryRows}</tbody>
+        <tfoot><tr style="background:#eff6ff;font-weight:700">
+          <td colspan="4" style="padding:8px 10px;text-align:right;border-top:2px solid #1e40af">Total (${filtered.length} invoices)</td>
+          <td style="padding:8px 10px;text-align:right;border-top:2px solid #1e40af">&#8377;${fmt(totalTaxable)}</td>
+          <td style="padding:8px 10px;text-align:right;border-top:2px solid #1e40af">&#8377;${fmt(totalGST)}</td>
+          <td style="padding:8px 10px;text-align:right;border-top:2px solid #1e40af;color:#1e40af">&#8377;${fmt(totalGrand)}</td>
+        </tr></tfoot>
+      </table>
+    </div>
+  </div>
+  <div class="no-print" style="text-align:center;padding:14px;display:flex;gap:12px;justify-content:center;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e2e8f0">
+    <button onclick="window.print()" style="padding:10px 28px;background:#1e40af;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">&#128424; Print / Save as PDF</button>
+    <button onclick="window.close()" style="padding:10px 20px;background:#f1f5f9;color:#374151;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;cursor:pointer">Close</button>
+  </div>
+  </body></html>`;
+  const win = window.open('','_blank','width=900,height=950');
+  if(win){ win.document.write(html); win.document.close(); }
+  else   { alert('Popup blocked — please allow popups for this site.'); }
 }
 
 function nextQuotationNo() {
