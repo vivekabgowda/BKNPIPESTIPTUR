@@ -448,6 +448,7 @@ let currentExpCat   = 'all';
 let profitFilterMonth = '';   // '' = current month, 'all' = all time
 let gstInvoiceFilter  = '';   // financial year e.g. '2025-26'
 let gstBillingTab     = 'invoices'; // 'invoices' or 'quotations'
+let _orderTotalLocked = false; // true when user manually typed a total
 let currentStaffTab = 'overview';
 let payrollMonth    = '';     // '' = current month
 let labourPayFrom   = '';     // custom date range for labour piecework
@@ -1401,6 +1402,7 @@ async function revertToReady(id) {
 async function delOrder(id) { if(!confirm('Delete this order?')) return; try { await col('orders').doc(id).delete(); } catch(e) { alert('Delete failed: '+e.message); } }
 
 function openOrderModal(id) {
+  _orderTotalLocked = false;
   const o = id ? cache.orders.find(x=>x.id===id) : null;
   const pipes = o?.pipes||{};
   modal(`<div class="modal">
@@ -1436,7 +1438,7 @@ function openOrderModal(id) {
         </div>
       </div>
       <div class="form-row cols-3">
-        <div class="form-group"><label>Total amount (₹)</label><input type="number" id="f-total" value="${o?.total||0}" min="0" inputmode="numeric" oninput="recalcBalance()"></div>
+        <div class="form-group"><label>Total amount (₹) <button type="button" onclick="_orderTotalLocked=false;autoCalcOrderTotal()" title="Recalculate from pipes" style="font-size:11px;padding:2px 7px;border:1px solid var(--brand);background:var(--brand-light);color:var(--brand);border-radius:4px;cursor:pointer;margin-left:4px">↻ Auto</button></label><input type="number" id="f-total" value="${o?.total||0}" min="0" inputmode="numeric" oninput="_orderTotalLocked=true;recalcBalance()"></div>
         <div class="form-group"><label>Advance received (₹)</label><input type="number" id="f-advance" value="${o?.advance||0}" min="0" inputmode="numeric" oninput="recalcBalance()"></div>
         <div class="form-group"><label>Balance (₹) <span style="font-size:10px;color:#1a6bc4">auto — edit to override</span></label><input type="number" id="f-balance" value="${o?.balance||o?.total?((o?.total||0)-(o?.advance||0)):0}" min="0" inputmode="numeric" style="font-weight:600;color:#c07000"></div>
       </div>
@@ -1520,7 +1522,7 @@ function autoCalcOrderTotal() {
   const rates = cache.pipe_rates || {};
   const delivRate = parseFloat(localStorage.getItem('hpf_delivery_rate') || '0');
   const hasRates = Object.keys(rates).length > 0;
-  if (!hasRates) return;
+  if (!hasRates || _orderTotalLocked) return;
   let total = 0;
   PIPE_TYPES.forEach(t => {
     const qty = parseInt(document.getElementById('pipe-'+t.replace(/\s+/g,'_'))?.value) || 0;
