@@ -5320,11 +5320,8 @@ function shareOrder(orderId) {
   const pipeList = PIPE_TYPES.filter(t=>(o.pipes||{})[t]>0)
     .map(t=>`${t} × ${o.pipes[t]}`).join(', ');
   const text = [
-    `*BKN RCC SPUN PIPES*`,
-    factoryAddr,
-    factoryPhone ? `Ph: ${factoryPhone}` : '',
+    `*BKN RCC SPUN PIPES, Tiptur*${factoryPhone?' — Ph: '+factoryPhone:''}`,
     ``,
-    `*Order Details*`,
     `Customer: ${o.customer}${o.phone?' ('+o.phone+')':''}`,
     `Address: ${o.address||'—'}${o.km?' (~'+o.km+' km)':''}`,
     `Pipes: ${pipeList||'—'}`,
