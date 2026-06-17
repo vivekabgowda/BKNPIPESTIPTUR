@@ -5314,17 +5314,24 @@ async function saveOrderPayment(orderId) {
 function shareOrder(orderId) {
   const o = cache.orders.find(x=>x.id===orderId);
   if(!o) return;
+  const p = cache.gst_profile || {};
+  const factoryPhone = p.phone ? p.phone.split('\n').map(l=>l.trim()).filter(Boolean).join(' / ') : '';
+  const factoryAddr  = p.address ? p.address.split('\n').map(l=>l.trim()).filter(Boolean).join(', ') : 'Tiptur, Karnataka';
   const pipeList = PIPE_TYPES.filter(t=>(o.pipes||{})[t]>0)
     .map(t=>`${t} × ${o.pipes[t]}`).join(', ');
   const text = [
-    `*BKN RCC SPUN PIPES Tiptur — Order Details*`,
+    `*BKN RCC SPUN PIPES*`,
+    factoryAddr,
+    factoryPhone ? `Ph: ${factoryPhone}` : '',
+    ``,
+    `*Order Details*`,
     `Customer: ${o.customer}${o.phone?' ('+o.phone+')':''}`,
     `Address: ${o.address||'—'}${o.km?' (~'+o.km+' km)':''}`,
     `Pipes: ${pipeList||'—'}`,
     `Total: ₹${fmt(o.total)} | Advance: ₹${fmt(o.advance)} | Balance: ₹${fmt(o.balance)}`,
     o.deliveryDate ? `Delivery: ${fmtDate(o.deliveryDate)}` : '',
     o.notes ? `Note: ${o.notes}` : '',
-  ].filter(Boolean).join('\n');
+  ].filter(s=>s!==undefined&&s!==null).join('\n');
   window.open('https://wa.me/?text='+encodeURIComponent(text), '_blank');
 }
 
