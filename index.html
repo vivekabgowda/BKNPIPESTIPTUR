@@ -1448,44 +1448,50 @@ async function delOrder(id) { if(!confirm('Delete this order?')) return; try { a
 
 function openOrderModal(id) {
   _orderTotalLocked = false;
-  const o = id ? cache.orders.find(x=>x.id===id) : null;
-  const pipes = o?.pipes||{};
+  const o     = id ? cache.orders.find(x=>x.id===id) : null;
+  const draft = (!id) ? JSON.parse(localStorage.getItem('hpf_order_draft')||'null') : null;
+  const hasDraft = !!draft && !o;
+  const src   = o || draft || {};
+  const pipes = src.pipes || {};
+  if(draft && !o) _orderTotalLocked = draft._totalLocked || false;
+
   modal(`<div class="modal">
     <div class="modal-header">
       <h3 style="font-size:15px;font-weight:600">${o?'Edit order':'New order'}</h3>
       <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
     </div>
+    ${hasDraft?`<div style="background:#fffbeb;border-bottom:1px solid #fde68a;padding:8px 14px;font-size:12px;display:flex;align-items:center;gap:8px"><i class="ti ti-restore" style="color:#d97706"></i><span style="flex:1;color:#78350f">Draft restored — continue where you left off.</span><button onclick="discardOrderDraft()" style="font-size:11px;padding:3px 10px;border:1px solid #fbbf24;background:#fff;border-radius:5px;cursor:pointer;color:#92400e;white-space:nowrap">Start fresh</button></div>`:''}
     <div class="modal-body">
       <div class="form-row cols-2">
-        <div class="form-group"><label>Order date</label><input type="date" id="f-orderDate" value="${o?.orderDate||today()}"></div>
-        <div class="form-group"><label>Customer name *</label><input type="text" id="f-customer" value="${esc(o?.customer||'')}" placeholder="Full name"></div>
+        <div class="form-group"><label>Order date</label><input type="date" id="f-orderDate" value="${src.orderDate||today()}"></div>
+        <div class="form-group"><label>Customer name *</label><input type="text" id="f-customer" value="${esc(src.customer||'')}" placeholder="Full name"></div>
       </div>
       <div class="form-row cols-2">
-        <div class="form-group"><label>Phone</label><input type="tel" id="f-phone" value="${esc(o?.phone||'')}" placeholder="10-digit"></div>
-        <div class="form-group"><label>Delivery date</label><input type="date" id="f-deliveryDate" value="${o?.deliveryDate||''}" onchange="checkDeliveryDate(this.value,'${id||''}')"><div id="delivery-date-warn" style="font-size:12px;margin-top:4px"></div></div>
+        <div class="form-group"><label>Phone</label><input type="tel" id="f-phone" value="${esc(src.phone||'')}" placeholder="10-digit"></div>
+        <div class="form-group"><label>Delivery date</label><input type="date" id="f-deliveryDate" value="${src.deliveryDate||''}" onchange="checkDeliveryDate(this.value,'${id||''}')"><div id="delivery-date-warn" style="font-size:12px;margin-top:4px"></div></div>
       </div>
       <div class="form-row cols-2">
         <div class="form-group">
           <label>Village / Hobli <span style="font-size:11px;color:#1a6bc4">(type 2 letters)</span></label>
           <div class="hobli-wrap">
-            <input type="text" id="f-hobli-search" value="${esc(o?.address||'')}" placeholder="e.g. No, Tu, Ki..." autocomplete="off" oninput="hobliSearch(this.value,'f-address')" onfocus="hobliSearch(this.value,'f-address')">
-            <input type="hidden" id="f-address" value="${esc(o?.address||'')}">
+            <input type="text" id="f-hobli-search" value="${esc(src.address||'')}" placeholder="e.g. No, Tu, Ki..." autocomplete="off" oninput="hobliSearch(this.value,'f-address')" onfocus="hobliSearch(this.value,'f-address')">
+            <input type="hidden" id="f-address" value="${esc(src.address||'')}">
             <div class="hobli-results" id="hobli-results" style="display:none"></div>
           </div>
         </div>
-        <div class="form-group"><label>Distance from Tiptur (km)</label><input type="number" id="f-km" value="${o?.km||''}" min="0" placeholder="e.g. 45" inputmode="numeric" oninput="autoCalcOrderTotal()"></div>
+        <div class="form-group"><label>Distance from Tiptur (km)</label><input type="number" id="f-km" value="${src.km||''}" min="0" placeholder="e.g. 45" inputmode="numeric" oninput="autoCalcOrderTotal()"></div>
       </div>
       <div class="form-group">
         <label>Route <span style="font-size:11px;color:#1a6bc4">(type to search or create — orders with same route group together in dispatch)</span></label>
         <div class="hobli-wrap">
-          <input type="text" id="f-route-search" value="${esc(o?.route||'')}" placeholder="e.g. Turuvekere Road, Arsikere Road..." autocomplete="off" oninput="routeSearch(this.value)" onfocus="routeSearch(this.value)">
+          <input type="text" id="f-route-search" value="${esc(src.route||'')}" placeholder="e.g. Turuvekere Road, Arsikere Road..." autocomplete="off" oninput="routeSearch(this.value)" onfocus="routeSearch(this.value)">
           <div class="route-results" id="route-results" style="display:none"></div>
         </div>
       </div>
       <div class="form-row cols-3">
-        <div class="form-group"><label>Total amount (₹) <button type="button" onclick="_orderTotalLocked=false;autoCalcOrderTotal()" title="Recalculate from pipes" style="font-size:11px;padding:2px 7px;border:1px solid var(--brand);background:var(--brand-light);color:var(--brand);border-radius:4px;cursor:pointer;margin-left:4px">↻ Auto</button></label><input type="number" id="f-total" value="${o?.total||0}" min="0" inputmode="numeric" oninput="_orderTotalLocked=true;recalcBalance()"></div>
-        <div class="form-group"><label>Advance received (₹)</label><input type="number" id="f-advance" value="${o?.advance||0}" min="0" inputmode="numeric" oninput="recalcBalance()"></div>
-        <div class="form-group"><label>Balance (₹) <span style="font-size:10px;color:#1a6bc4">auto — edit to override</span></label><input type="number" id="f-balance" value="${o?.balance||o?.total?((o?.total||0)-(o?.advance||0)):0}" min="0" inputmode="numeric" style="font-weight:600;color:#c07000"></div>
+        <div class="form-group"><label>Total amount (₹) <button type="button" onclick="_orderTotalLocked=false;autoCalcOrderTotal()" title="Recalculate from pipes" style="font-size:11px;padding:2px 7px;border:1px solid var(--brand);background:var(--brand-light);color:var(--brand);border-radius:4px;cursor:pointer;margin-left:4px">↻ Auto</button></label><input type="number" id="f-total" value="${src.total||0}" min="0" inputmode="numeric" oninput="_orderTotalLocked=true;recalcBalance()"></div>
+        <div class="form-group"><label>Advance received (₹)</label><input type="number" id="f-advance" value="${src.advance||0}" min="0" inputmode="numeric" oninput="recalcBalance()"></div>
+        <div class="form-group"><label>Balance (₹) <span style="font-size:10px;color:#1a6bc4">auto — edit to override</span></label><input type="number" id="f-balance" value="${src.balance!==undefined?src.balance:(src.total?(src.total-src.advance):0)}" min="0" inputmode="numeric" style="font-weight:600;color:#c07000"></div>
       </div>
       <div class="form-group">
         <label style="font-size:13px;font-weight:600;margin-bottom:8px">Pipes ordered <span id="order-running-total" style="font-size:12px;font-weight:400;color:var(--brand);margin-left:8px"></span></label>
@@ -1500,11 +1506,11 @@ function openOrderModal(id) {
         <div class="form-group">
           <label>Payment mode</label>
           <select id="f-paymentMode" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:var(--font);font-size:13px;width:100%">
-            ${['Cash','UPI','Bank Transfer','Cheque'].map(m=>`<option value="${m}" ${(o?.paymentMode||'Cash')===m?'selected':''}>${m}</option>`).join('')}
+            ${['Cash','UPI','Bank Transfer','Cheque'].map(m=>`<option value="${m}" ${(src.paymentMode||'Cash')===m?'selected':''}>${m}</option>`).join('')}
           </select>
         </div>
         <div class="form-group"><label>Notes</label>
-          <textarea id="f-notes" rows="2" style="resize:vertical">${esc(o?.notes||'')}</textarea>
+          <textarea id="f-notes" rows="2" style="resize:vertical">${esc(src.notes||'')}</textarea>
         </div>
       </div>
     </div>
@@ -1513,6 +1519,38 @@ function openOrderModal(id) {
       <button class="btn-primary" onclick="saveOrder('${id||''}')">Save order</button>
     </div>
   </div>`);
+  // Auto-save draft on every input/change (new orders only)
+  if(!id) setTimeout(() => {
+    const body = document.querySelector('.modal-body');
+    if(body) { body.addEventListener('input', saveOrderDraft); body.addEventListener('change', saveOrderDraft); }
+  }, 60);
+}
+
+function saveOrderDraft() {
+  if(!document.getElementById('f-customer')) return;
+  const pipes = {};
+  PIPE_TYPES.forEach(t => { const v=parseInt(document.getElementById('pipe-'+t.replace(/\s+/g,'_'))?.value)||0; if(v) pipes[t]=v; });
+  localStorage.setItem('hpf_order_draft', JSON.stringify({
+    orderDate:    document.getElementById('f-orderDate')?.value||'',
+    customer:     document.getElementById('f-customer')?.value||'',
+    phone:        document.getElementById('f-phone')?.value||'',
+    address:      document.getElementById('f-hobli-search')?.value||'',
+    km:           document.getElementById('f-km')?.value||'',
+    route:        document.getElementById('f-route-search')?.value||'',
+    deliveryDate: document.getElementById('f-deliveryDate')?.value||'',
+    total:        document.getElementById('f-total')?.value||'',
+    advance:      document.getElementById('f-advance')?.value||'',
+    balance:      document.getElementById('f-balance')?.value||'',
+    paymentMode:  document.getElementById('f-paymentMode')?.value||'Cash',
+    notes:        document.getElementById('f-notes')?.value||'',
+    pipes,
+    _totalLocked: _orderTotalLocked
+  }));
+}
+
+function discardOrderDraft() {
+  localStorage.removeItem('hpf_order_draft');
+  openOrderModal();
 }
 
 
@@ -1661,6 +1699,7 @@ async function saveOrder(id) {
   };
   try {
     await col('orders').doc(id||uid()).set(data);
+    localStorage.removeItem('hpf_order_draft');
     closeModal();
   } catch(e) {
     alert('Save failed: '+e.message);
