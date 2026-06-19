@@ -1468,24 +1468,32 @@ function openOrderModal(id) {
       </div>
       <div class="form-row cols-2">
         <div class="form-group"><label>Phone</label><input type="tel" id="f-phone" value="${esc(src.phone||'')}" placeholder="10-digit"></div>
-        <div class="form-group"><label>Delivery date</label><input type="date" id="f-deliveryDate" value="${src.deliveryDate||''}" onchange="checkDeliveryDate(this.value,'${id||''}')"><div id="delivery-date-warn" style="font-size:12px;margin-top:4px"></div></div>
+        <div class="form-group" style="display:flex;align-items:center;padding-top:22px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px;margin:0">
+            <input type="checkbox" id="f-pickup" onchange="togglePickup(this.checked)" ${(src.address==='Factory Pickup'||src.pickup)?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--brand)">
+            Factory Pickup <span style="font-size:11px;font-weight:400;color:var(--muted)">(customer collects here)</span>
+          </label>
+        </div>
       </div>
-      <div class="form-row cols-2">
+      <div id="f-delivery-fields" style="${(src.address==='Factory Pickup'||src.pickup)?'display:none':''}">
+        <div class="form-row cols-2">
+          <div class="form-group"><label>Delivery date</label><input type="date" id="f-deliveryDate" value="${src.deliveryDate||''}" onchange="checkDeliveryDate(this.value,'${id||''}')"><div id="delivery-date-warn" style="font-size:12px;margin-top:4px"></div></div>
+          <div class="form-group"><label>Distance from Tiptur (km)</label><input type="number" id="f-km" value="${src.km||''}" min="0" placeholder="e.g. 45" inputmode="numeric" oninput="autoCalcOrderTotal()"></div>
+        </div>
         <div class="form-group">
           <label>Village / Hobli <span style="font-size:11px;color:#1a6bc4">(type 2 letters)</span></label>
           <div class="hobli-wrap">
-            <input type="text" id="f-hobli-search" value="${esc(src.address||'')}" placeholder="e.g. No, Tu, Ki..." autocomplete="off" oninput="hobliSearch(this.value,'f-address')" onfocus="hobliSearch(this.value,'f-address')">
-            <input type="hidden" id="f-address" value="${esc(src.address||'')}">
+            <input type="text" id="f-hobli-search" value="${esc(src.address!=='Factory Pickup'?src.address||'':'')}" placeholder="e.g. No, Tu, Ki..." autocomplete="off" oninput="hobliSearch(this.value,'f-address')" onfocus="hobliSearch(this.value,'f-address')">
+            <input type="hidden" id="f-address" value="${esc(src.address!=='Factory Pickup'?src.address||'':'')}">
             <div class="hobli-results" id="hobli-results" style="display:none"></div>
           </div>
         </div>
-        <div class="form-group"><label>Distance from Tiptur (km)</label><input type="number" id="f-km" value="${src.km||''}" min="0" placeholder="e.g. 45" inputmode="numeric" oninput="autoCalcOrderTotal()"></div>
-      </div>
-      <div class="form-group">
-        <label>Route <span style="font-size:11px;color:#1a6bc4">(type to search or create — orders with same route group together in dispatch)</span></label>
-        <div class="hobli-wrap">
-          <input type="text" id="f-route-search" value="${esc(src.route||'')}" placeholder="e.g. Turuvekere Road, Arsikere Road..." autocomplete="off" oninput="routeSearch(this.value)" onfocus="routeSearch(this.value)">
-          <div class="route-results" id="route-results" style="display:none"></div>
+        <div class="form-group">
+          <label>Route <span style="font-size:11px;color:#1a6bc4">(type to search or create)</span></label>
+          <div class="hobli-wrap">
+            <input type="text" id="f-route-search" value="${esc(src.route||'')}" placeholder="e.g. Turuvekere Road, Arsikere Road..." autocomplete="off" oninput="routeSearch(this.value)" onfocus="routeSearch(this.value)">
+            <div class="route-results" id="route-results" style="display:none"></div>
+          </div>
         </div>
       </div>
       <div class="form-row cols-3">
@@ -1554,6 +1562,15 @@ function discardOrderDraft() {
 }
 
 
+
+function togglePickup(checked) {
+  const fields = document.getElementById('f-delivery-fields');
+  if(fields) fields.style.display = checked ? 'none' : '';
+  if(checked) {
+    const warn = document.getElementById('delivery-date-warn');
+    if(warn) warn.innerHTML = '';
+  }
+}
 
 function checkDeliveryDate(date, editingId) {
   const warn = document.getElementById('delivery-date-warn');
@@ -1668,15 +1685,16 @@ async function saveOrder(id) {
   if(Object.keys(pipes).length === 0) { alert('Add at least one pipe type with quantity > 0'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
   const orderDate = document.getElementById('f-orderDate').value;
   if(!orderDate) { alert('Select an order date'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
-  // Address: use visible search box value (works for both typed and dropdown-selected)
+  const isPickup = document.getElementById('f-pickup')?.checked;
+  // Address: factory pickup or typed village/hobli
   const addressVisible = document.getElementById('f-hobli-search')?.value.trim();
   const addressHidden  = document.getElementById('f-address')?.value.trim();
-  const address = addressVisible || addressHidden || '';
+  const address = isPickup ? 'Factory Pickup' : (addressVisible || addressHidden || '');
   const total   = Number(document.getElementById('f-total')?.value||0);
   const advance = Number(document.getElementById('f-advance')?.value||0);
   if(total <= 0) { alert('Enter total amount'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
   if(advance > total) { alert('Advance cannot exceed total amount'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
-  const deliveryDate = document.getElementById('f-deliveryDate').value;
+  const deliveryDate = isPickup ? '' : (document.getElementById('f-deliveryDate')?.value||'');
   if(deliveryDate && deliveryDate < orderDate) { alert('Delivery date cannot be before order date'); if(btn){btn.disabled=false;btn.textContent='Save order';} return; }
   const existing = id ? cache.orders.find(o=>o.id===id) : null;
   const existingPayments = existing?.payments || [];
@@ -1688,8 +1706,8 @@ async function saveOrder(id) {
     customer, phone: document.getElementById('f-phone').value.trim(),
     orderDate,
     deliveryDate,
-    address, route,
-    km: Number(document.getElementById('f-km').value)||0,
+    address, route: isPickup ? '' : route,
+    km: isPickup ? 0 : (Number(document.getElementById('f-km')?.value)||0),
     total, advance, balance,
     paymentMode: document.getElementById('f-paymentMode')?.value || 'Cash',
     pipes, notes: document.getElementById('f-notes').value,
