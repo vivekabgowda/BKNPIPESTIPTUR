@@ -392,7 +392,7 @@ let STAFF_PAY_CONFIG = JSON.parse(localStorage.getItem('hpf_staff_config') || '{
 
 // Single-item materials (one qty + one amount per delivery)
 const MAT_SINGLE = [
-  { id:'cement',  label:'Cement',        unit:'Bags', rateField:false },
+  { id:'cement',  label:'Cement',        unit:'Bags', rateField:true  },
   { id:'steel_6', label:'Steel 6mm',     unit:'Kg',   rateField:false },
   { id:'msand',   label:'M-Sand',        unit:'Tons', rateField:true  },
   { id:'agg20',   label:'20mm Aggregate',unit:'Tons', rateField:true  },
@@ -3643,10 +3643,10 @@ function openMatModal(editId) {
         <div class="form-row cols-2">
           <div class="form-group">
             <label>Quantity <span id="mat-unit-lbl" style="font-size:11px;color:#888">${existing&&!isWireExist?'('+MAT_SINGLE.find(r=>r.id===defCat)?.unit+')':''}</span></label>
-            <input type="number" id="mat-qty" min="0" step="0.1" inputmode="decimal" placeholder="0" value="${existing?.qty||''}">
+            <input type="number" id="mat-qty" min="0" step="0.1" inputmode="decimal" placeholder="0" value="${existing?.qty||''}" oninput="onMatCalc()">
           </div>
           <div class="form-group" id="mat-rate-group" style="${MAT_SINGLE.find(r=>r.id===defCat)?.rateField?'':'display:none'}">
-            <label>Rate per Ton (₹)</label>
+            <label id="mat-rate-lbl">Rate per ${MAT_SINGLE.find(r=>r.id===defCat)?.unit||'Unit'} (₹)</label>
             <input type="number" id="mat-rate" min="0" step="1" inputmode="numeric" placeholder="0" value="${existing?.rate||(!editId?getLastRate(defCat):'')||''}" oninput="onMatCalc()">
           </div>
         </div>
@@ -3688,6 +3688,8 @@ function onMatCategoryChange() {
     if(unitLbl && mat) unitLbl.textContent = '('+mat.unit+')';
     const rg = document.getElementById('mat-rate-group');
     if(rg) rg.style.display = mat?.rateField ? '' : 'none';
+    const rateLbl = document.getElementById('mat-rate-lbl');
+    if(rateLbl && mat) rateLbl.textContent = `Rate per ${mat.unit} (₹)`;
     if(mat?.rateField) {
       const rateEl = document.getElementById('mat-rate');
       if(rateEl && !rateEl.value) { rateEl.value = getLastRate(cat); onMatCalc(); }
