@@ -1467,7 +1467,7 @@ function openOrderModal(id) {
         <div class="form-group"><label>Customer name *</label><input type="text" id="f-customer" value="${esc(src.customer||'')}" placeholder="Full name"></div>
       </div>
       <div class="form-row cols-2">
-        <div class="form-group"><label>Phone</label><input type="tel" id="f-phone" value="${esc(src.phone||'')}" placeholder="10-digit"></div>
+        <div class="form-group"><label>Phone <span style="font-size:11px;color:var(--muted)">(separate multiple with comma)</span></label><input type="text" id="f-phone" value="${esc(src.phone||'')}" placeholder="e.g. 9876543210, 9845123456" inputmode="tel"></div>
         <div class="form-group" style="display:flex;align-items:center;padding-top:22px">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:13px;margin:0">
             <input type="checkbox" id="f-pickup" onchange="togglePickup(this.checked)" ${(src.address==='Factory Pickup'||src.pickup)?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--brand)">
@@ -5447,9 +5447,10 @@ function shareOrder(orderId) {
     o.notes ? `Note: ${o.notes}` : '',
   ].filter(s=>s!==undefined&&s!==null).join('\n');
   // If customer phone exists, open directly to their WhatsApp (no need to save number)
-  const phone = (o.phone||'').replace(/\D/g,'');
-  const waUrl = phone
-    ? `https://wa.me/91${phone}?text=${encodeURIComponent(text)}`
+  // Use first number for direct WhatsApp link
+  const firstPhone = (o.phone||'').split(',')[0].replace(/\D/g,'');
+  const waUrl = firstPhone
+    ? `https://wa.me/91${firstPhone}?text=${encodeURIComponent(text)}`
     : `https://wa.me/?text=${encodeURIComponent(text)}`;
   window.open(waUrl, '_blank');
 }
