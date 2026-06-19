@@ -5428,7 +5428,12 @@ function shareOrder(orderId) {
     o.deliveryDate ? `Delivery: ${fmtDate(o.deliveryDate)}` : '',
     o.notes ? `Note: ${o.notes}` : '',
   ].filter(s=>s!==undefined&&s!==null).join('\n');
-  window.open('https://wa.me/?text='+encodeURIComponent(text), '_blank');
+  // If customer phone exists, open directly to their WhatsApp (no need to save number)
+  const phone = (o.phone||'').replace(/\D/g,'');
+  const waUrl = phone
+    ? `https://wa.me/91${phone}?text=${encodeURIComponent(text)}`
+    : `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(waUrl, '_blank');
 }
 
 </script>
