@@ -5445,6 +5445,8 @@ function shareOrder(orderId) {
     `Total: ₹${fmt(o.total)} | Advance: ₹${fmt(o.advance)} | Balance: ₹${fmt(o.balance)}`,
     o.deliveryDate ? `Delivery: ${fmtDate(o.deliveryDate)}` : '',
     o.notes ? `Note: ${o.notes}` : '',
+    ``,
+    `🌐 www.bkngroupofindustries.com`,
   ].filter(s=>s!==undefined&&s!==null).join('\n');
   // If customer phone exists, open directly to their WhatsApp (no need to save number)
   // Use first number for direct WhatsApp link
