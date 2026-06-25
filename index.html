@@ -4503,9 +4503,9 @@ function gstFinYear(dateStr) {
 
 function nextInvoiceNo(year) {
   const invs = (cache.gst_invoices||[]).filter(i=>i.invoiceNo&&i.invoiceNo.includes('/'+year+'/'));
-  if(!invs.length) return `HP/${year}/001`;
+  if(!invs.length) return `BNB/${year}/001`;
   const nums = invs.map(i=>parseInt((i.invoiceNo.split('/')||[])[2])||0);
-  return `HP/${year}/${String(Math.max(...nums)+1).padStart(3,'0')}`;
+  return `BNB/${year}/${String(Math.max(...nums)+1).padStart(3,'0')}`;
 }
 
 function renderGSTBilling() {
