@@ -4502,9 +4502,10 @@ function gstFinYear(dateStr) {
 }
 
 function nextInvoiceNo(year) {
-  const invs = (cache.gst_invoices||[]).filter(i=>i.invoiceNo&&i.invoiceNo.includes('/'+year+'/'));
-  if(!invs.length) return `BNB/${year}/001`;
-  const nums = invs.map(i=>parseInt((i.invoiceNo.split('/')||[])[2])||0);
+  const all = cache.gst_invoices||[];
+  const invs = all.filter(i=>i.invoiceNo&&i.invoiceNo.includes('/'+year+'/'));
+  if(!invs.length) return `BNB/${year}/${String(all.length+1).padStart(3,'0')}`;
+  const nums = invs.map(i=>{ const p=i.invoiceNo.split('/'); return parseInt(p[p.length-1])||0; });
   return `BNB/${year}/${String(Math.max(...nums)+1).padStart(3,'0')}`;
 }
 
