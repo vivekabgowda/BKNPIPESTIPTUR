@@ -294,6 +294,7 @@ footer { background: #0f172a; color: rgba(255,255,255,0.6); padding: 40px 1.5rem
       <a href="#about">About</a>
       <a href="#units">Our Units</a>
       <a href="#products">Products</a>
+      <a href="#gallery">Gallery</a>
       <a href="#contact">Contact</a>
     </nav>
     <a href="tel:7760337303" class="btn btn-primary" style="margin-left:8px">📞 Call Us</a>
@@ -339,6 +340,9 @@ footer { background: #0f172a; color: rgba(255,255,255,0.6); padding: 40px 1.5rem
     <div class="section-label">Who We Are</div>
     <div class="section-title">BKN Group of Industries</div>
     <div class="section-sub">Established in 1998, BKN Group of Industries is a trusted name in concrete manufacturing in Karnataka. With three dedicated units across Tiptur and Kunigal, we supply high-quality RCC spun pipes, precast electric poles, and concrete products to contractors, government departments, and infrastructure projects.</div>
+    <div style="margin-top:28px;border-radius:14px;overflow:hidden;max-height:320px">
+      <img src="images/team.jpeg" alt="BKN Group of Industries team" style="width:100%;height:320px;object-fit:cover;object-position:center top">
+    </div>
     <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:32px">
       <div style="background:var(--blue-light);border-radius:10px;padding:16px 22px;display:flex;align-items:center;gap:10px">
         <span style="font-size:24px">🏭</span>
@@ -367,9 +371,15 @@ footer { background: #0f172a; color: rgba(255,255,255,0.6); padding: 40px 1.5rem
       <!-- Unit 1 -->
       <div class="unit-card">
         <div class="unit-card-top pipes">
-          <div class="unit-photo-placeholder">
-            <div class="icon">🔵</div>
-            <div class="ph-text">Photo coming soon</div>
+          <div class="slider" id="slider-pipes">
+            <div class="slider-track" id="track-pipes">
+              <img src="images/pipes-yard.jpeg" alt="BKN RCC Spun Pipes yard Tiptur">
+              <img src="images/pipes-closeup.jpeg" alt="RCC hume pipe close up">
+              <img src="images/pipes-jcb.jpeg" alt="BKN pipe factory Tiptur">
+            </div>
+            <button class="slider-btn prev" onclick="slideMove('pipes',-1)">&#8249;</button>
+            <button class="slider-btn next" onclick="slideMove('pipes',1)">&#8250;</button>
+            <div class="slider-dots" id="dots-pipes"></div>
           </div>
         </div>
         <div class="unit-card-body">
@@ -452,7 +462,9 @@ footer { background: #0f172a; color: rgba(255,255,255,0.6); padding: 40px 1.5rem
         <p>NP2, NP3 &amp; NP4 class pipes in 150mm to 1200mm diameter. Used for stormwater drainage, sewage lines, culverts, irrigation channels and road crossings.</p>
       </div>
       <div class="product-card">
-        <div class="product-icon" style="background:#bfdbfe">🪣</div>
+        <div style="border-radius:8px;overflow:hidden;margin-bottom:14px;height:140px">
+          <img src="images/water-tank.jpeg" alt="RCC underground water tank Karnataka" style="width:100%;height:100%;object-fit:cover">
+        </div>
         <h4>Underground Water Tanks</h4>
         <p>RCC underground sump tanks and overhead water tanks for residential, commercial and farm use. Custom sizes available. Strong, leak-proof and long-lasting.</p>
       </div>
@@ -580,6 +592,37 @@ footer { background: #0f172a; color: rgba(255,255,255,0.6); padding: 40px 1.5rem
   </div>
 </section>
 
+<!-- GALLERY -->
+<section class="section" id="gallery">
+  <div class="container">
+    <div class="section-label">Our Work</div>
+    <div class="section-title">Photo Gallery</div>
+    <div class="gallery-grid">
+      <div class="gallery-item" onclick="openLightbox('images/pipes-yard.jpeg')">
+        <img src="images/pipes-yard.jpeg" alt="RCC spun pipes yard Tiptur">
+      </div>
+      <div class="gallery-item" onclick="openLightbox('images/pipes-closeup.jpeg')">
+        <img src="images/pipes-closeup.jpeg" alt="RCC hume pipe close up">
+      </div>
+      <div class="gallery-item" onclick="openLightbox('images/pipes-jcb.jpeg')">
+        <img src="images/pipes-jcb.jpeg" alt="BKN pipe factory">
+      </div>
+      <div class="gallery-item" onclick="openLightbox('images/water-tank.jpeg')">
+        <img src="images/water-tank.jpeg" alt="RCC underground water tank">
+      </div>
+      <div class="gallery-item" onclick="openLightbox('images/team.jpeg')">
+        <img src="images/team.jpeg" alt="BKN Group team">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Lightbox -->
+<div id="lightbox" onclick="closeLightbox()">
+  <span id="lb-close">&#10005;</span>
+  <img id="lb-img" src="" alt="">
+</div>
+
 <!-- FOOTER -->
 <footer>
   <div class="footer-inner">
@@ -607,6 +650,45 @@ document.addEventListener('click', e => {
   const nav = document.getElementById('mobile-nav');
   if(!e.target.closest('header')) nav.classList.remove('open');
 });
+// Slider
+const sliders = {};
+function initSlider(id, count) {
+  sliders[id] = {index:0, count};
+  const dots = document.getElementById('dots-'+id);
+  if(!dots) return;
+  dots.innerHTML = '';
+  for(let i=0;i<count;i++){
+    const d = document.createElement('div');
+    d.className = 'slider-dot'+(i===0?' active':'');
+    d.onclick = (e) => { e.stopPropagation(); goSlide(id,i); };
+    dots.appendChild(d);
+  }
+}
+function goSlide(id, index) {
+  const s = sliders[id];
+  s.index = index;
+  document.getElementById('track-'+id).style.transform = `translateX(-${index*100}%)`;
+  document.querySelectorAll('#dots-'+id+' .slider-dot').forEach((d,i)=>d.classList.toggle('active',i===index));
+}
+function slideMove(id, dir) {
+  const s = sliders[id];
+  goSlide(id, (s.index + dir + s.count) % s.count);
+}
+document.addEventListener('DOMContentLoaded', () => {
+  if(document.getElementById('slider-pipes')) initSlider('pipes', 3);
+});
+// Auto-advance sliders every 4s
+setInterval(() => { Object.keys(sliders).forEach(id => slideMove(id, 1)); }, 4000);
+
+// Lightbox
+function openLightbox(src) {
+  document.getElementById('lb-img').src = src;
+  document.getElementById('lightbox').classList.add('open');
+}
+function closeLightbox() {
+  document.getElementById('lightbox').classList.remove('open');
+}
+
 // Smooth active nav highlight on scroll
 const sections = document.querySelectorAll('section[id], div[id="top"]');
 const navLinks  = document.querySelectorAll('nav a, .mobile-nav a');
