@@ -365,10 +365,41 @@ footer { background: #0f172a; color: rgba(255,255,255,0.6); padding: 40px 1.5rem
   <div class="container">
     <div class="section-label">Our Divisions</div>
     <div class="section-title">Three Manufacturing Units</div>
-    <div class="section-sub">Each unit specialises in a product category, ensuring focused quality and expertise.</div>
+    <div class="section-sub">Operating since 1998 with three dedicated units across Kunigal and Tiptur, supplying quality concrete products across Karnataka.</div>
     <div class="units-grid">
 
-      <!-- Unit 1 -->
+      <!-- Unit 1 — Kunigal Pipes (Main Unit) -->
+      <div class="unit-card">
+        <div class="unit-card-top pipes">
+          <div class="slider" id="slider-kunigal">
+            <div class="slider-track" id="track-kunigal">
+              <img src="images/kunigal-pipes-1.jpeg" alt="BKN RCC Spun Pipes Kunigal factory">
+              <img src="images/kunigal-pipes-2.jpeg" alt="BKN RCC pipe manufacturing Kunigal">
+            </div>
+            <button class="slider-btn prev" onclick="slideMove('kunigal',-1)">&#8249;</button>
+            <button class="slider-btn next" onclick="slideMove('kunigal',1)">&#8250;</button>
+            <div class="slider-dots" id="dots-kunigal"></div>
+          </div>
+        </div>
+        <div class="unit-card-body">
+          <span class="unit-tag tag-blue">Kunigal — Main Unit · Est. 1998</span>
+          <h3>BKN RCC Spun Pipes</h3>
+          <div class="loc">📍 Kollapurdamma Temple Road, Durga Nagar, Kunigal — 572130</div>
+          <p>Our flagship unit since 1998. Manufacturers of NP2 &amp; NP3 class RCC Hume Pipes in large diameters for drainage, culverts, irrigation and major infrastructure projects.</p>
+          <div class="unit-specs">
+            <span class="spec-tag">300mm</span>
+            <span class="spec-tag">450mm</span>
+            <span class="spec-tag">600mm</span>
+            <span class="spec-tag">900mm</span>
+            <span class="spec-tag">1200mm</span>
+            <span class="spec-tag">1600mm</span>
+            <span class="spec-tag">NP2 Class</span>
+            <span class="spec-tag">NP3 Class</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Unit 2 — Tiptur Pipes -->
       <div class="unit-card">
         <div class="unit-card-top pipes">
           <div class="slider" id="slider-pipes">
@@ -386,10 +417,9 @@ footer { background: #0f172a; color: rgba(255,255,255,0.6); padding: 40px 1.5rem
           <span class="unit-tag tag-blue">Tiptur Unit</span>
           <h3>BKN RCC Spun Pipes</h3>
           <div class="loc">📍 Behind Nikita TVS, Pallaghatti Layout, Tiptur — 572201</div>
-          <p>Manufacturers of NP2 &amp; NP3 class RCC Hume Pipes used in drainage, culverts, irrigation and infrastructure projects.</p>
+          <p>Manufacturers of NP2 &amp; NP3 class RCC Hume Pipes used in drainage, culverts, irrigation and infrastructure projects across Tumkur district.</p>
           <div class="unit-specs">
             <span class="spec-tag">300mm</span>
-            <span class="spec-tag">400mm</span>
             <span class="spec-tag">450mm</span>
             <span class="spec-tag">600mm</span>
             <span class="spec-tag">900mm</span>
@@ -400,47 +430,30 @@ footer { background: #0f172a; color: rgba(255,255,255,0.6); padding: 40px 1.5rem
         </div>
       </div>
 
-      <!-- Unit 2 -->
+      <!-- Unit 3 — Electric Poles -->
       <div class="unit-card">
         <div class="unit-card-top poles">
-          <div class="unit-photo-placeholder">
-            <div class="icon">🟡</div>
-            <div class="ph-text">Photo coming soon</div>
+          <div class="slider" id="slider-poles">
+            <div class="slider-track" id="track-poles">
+              <img src="images/poles-1.jpeg" alt="BKN Electric Poles factory Kunigal">
+              <img src="images/poles-2.jpeg" alt="BKN Electric Poles production Kunigal">
+            </div>
+            <button class="slider-btn prev" onclick="slideMove('poles',-1)">&#8249;</button>
+            <button class="slider-btn next" onclick="slideMove('poles',1)">&#8250;</button>
+            <div class="slider-dots" id="dots-poles"></div>
           </div>
         </div>
         <div class="unit-card-body">
           <span class="unit-tag tag-yellow">Kunigal Unit</span>
           <h3>BKN Electric Poles</h3>
           <div class="loc">📍 Kollapurdamma Temple Road, Durga Nagar, Kunigal — 572130</div>
-          <p>Precast concrete electric poles manufactured for BESCOM, KPTCL and rural electrification projects across Karnataka.</p>
+          <p>Precast prestressed concrete electric poles manufactured for BESCOM, KPTCL and rural electrification projects across Karnataka.</p>
           <div class="unit-specs">
             <span class="spec-tag">8m Poles</span>
             <span class="spec-tag">9m Poles</span>
             <span class="spec-tag">11m Poles</span>
             <span class="spec-tag">Prestressed</span>
             <span class="spec-tag">BESCOM Approved</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Unit 3 -->
-      <div class="unit-card">
-        <div class="unit-card-top concrete">
-          <div class="unit-photo-placeholder">
-            <div class="icon">🟢</div>
-            <div class="ph-text">Photo coming soon</div>
-          </div>
-        </div>
-        <div class="unit-card-body">
-          <span class="unit-tag tag-green">Kunigal Unit</span>
-          <h3>BKN Concrete Products</h3>
-          <div class="loc">📍 Kollapurdamma Temple Road, Durga Nagar, Kunigal — 572130</div>
-          <p>Wide range of precast concrete products for construction, infrastructure and civil engineering applications.</p>
-          <div class="unit-specs">
-            <span class="spec-tag">Manhole Covers</span>
-            <span class="spec-tag">Precast Slabs</span>
-            <span class="spec-tag">Kerb Stones</span>
-            <span class="spec-tag">Cisterns</span>
           </div>
         </div>
       </div>
@@ -675,7 +688,9 @@ function slideMove(id, dir) {
   goSlide(id, (s.index + dir + s.count) % s.count);
 }
 document.addEventListener('DOMContentLoaded', () => {
+  if(document.getElementById('slider-kunigal')) initSlider('kunigal', 2);
   if(document.getElementById('slider-pipes')) initSlider('pipes', 3);
+  if(document.getElementById('slider-poles')) initSlider('poles', 2);
 });
 // Auto-advance sliders every 4s
 setInterval(() => { Object.keys(sliders).forEach(id => slideMove(id, 1)); }, 4000);
