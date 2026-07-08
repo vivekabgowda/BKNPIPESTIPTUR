@@ -533,19 +533,20 @@ function exportPL() {
 
 function exportPayroll(mon) {
   const staffCfg = STAFF_PAY_CONFIG;
-  const headers = ['Staff','Period From','Period To','Days Present','Days Absent','Full Salary','Absent Deduction','Earned','Advances','Net Payable','Paid','Remaining'];
+  const headers = ['Staff','Period From','Period To','Days Present','Days Absent','Full Salary','Absent Deduction','Earned','Advances','Food Allowance','Net Payable','Paid','Remaining'];
   const rows = STAFF.map(s=>{
     const cfg=staffCfg[s]||{}; const salary=Number(cfg.salary)||0; const salaryDay=Number(cfg.salaryDay)||1;
     const period=staffPeriod(salaryDay,mon);
     let sun=0; for(let d=new Date(period.from);d<=new Date(period.to);d.setDate(d.getDate()+1)){if(d.getDay()===0)sun++;}
     const wAtt=cache.attendance.filter(a=>a.staff===s&&a.date&&inRange(a.date,period.from,period.to)&&new Date(a.date).getDay()!==0);
-    const absent=wAtt.filter(a=>!a.present).length; const present=wAtt.filter(a=>a.present).length+sun;
+    const absent=wAtt.filter(a=>!a.present).length; const wPresent=wAtt.filter(a=>a.present).length; const present=wPresent+sun;
     const total=wAtt.length+sun; const daily=total>0?Math.round(salary/total):0;
     const earned=salary-daily*absent;
     const adv=cache.advances.filter(a=>a.staff===s&&a.date&&inRange(a.date,period.from,period.to)).reduce((s,a)=>s+(Number(a.amount)||0),0);
     const paid=(cache.salary_payments||[]).filter(p=>p.staff===s&&p.month===mon).reduce((s,p)=>s+(Number(p.amount)||0),0);
-    const net=earned-adv;
-    return [s,period.from,period.to,present,absent,salary,daily*absent,earned,adv,net,paid,net-paid];
+    const food=FOOD_PER_DAY*wPresent;
+    const net=earned-adv+food;
+    return [s,period.from,period.to,present,absent,salary,daily*absent,earned,adv,food,net,paid,net-paid];
   });
   downloadCSV('payroll_'+mon+'.csv', headers, rows);
 }
@@ -2353,9 +2354,11 @@ function calcStaffSalaryCost(monthStr) {
     const weekdayAtt  = (cache.attendance||[]).filter(a=>a.staff===s&&a.date&&inRange(a.date,period.from,period.to)&&new Date(a.date).getDay()!==0);
     const weekdayLogged = weekdayAtt.length;
     const daysAbsent    = weekdayAtt.filter(a=>!a.present).length;
+    const weekdaysPresent = weekdayAtt.filter(a=>a.present).length;
     const totalLogged   = weekdayLogged + sundaysInPeriod;
     const dailyRate     = totalLogged > 0 ? salary / totalLogged : 0;
-    staffCost += Math.round(salary - dailyRate * daysAbsent);
+    // Earned salary + food allowance (paid with salary) both count as staff cost
+    staffCost += Math.round(salary - dailyRate * daysAbsent) + FOOD_PER_DAY * weekdaysPresent;
   });
   // Labour piecework cost for month
   const prod = (cache.production||[]).filter(p=>p.date&&p.date.startsWith(monthStr));
@@ -2499,7 +2502,7 @@ function renderProfit() {
     </div>
     <div class="grid-4" style="margin-bottom:0.75rem">
       <div class="metric"><div class="metric-label">Shop purchases</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.shopCost)}</div><div style="font-size:10px;color:var(--muted-2);margin-top:3px">Manjunatha &amp; Barath</div></div>
-      <div class="metric"><div class="metric-label">Staff salaries</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.staffCost)}</div></div>
+      <div class="metric"><div class="metric-label">Staff salaries + food</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.staffCost)}</div></div>
       <div class="metric"><div class="metric-label">Labour (piecework)</div><div class="metric-value" style="font-size:17px">₹${fmt(stats.labourCost)}</div></div>
       <div class="metric"><div class="metric-label" style="color:transparent">—</div><div class="metric-value"></div></div>
     </div>
@@ -2557,7 +2560,7 @@ function renderProfit() {
           ` : ''}
           ${stats.staffCost > 0 || stats.labourCost > 0 ? `
           <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:10px 0 6px">Labour</div>
-          ${stats.staffCost > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-light);font-size:13px"><span>Staff salaries</span><span style="font-weight:600">₹${fmt(stats.staffCost)}</span></div>` : ''}
+          ${stats.staffCost > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-light);font-size:13px"><span>Staff salaries + food</span><span style="font-weight:600">₹${fmt(stats.staffCost)}</span></div>` : ''}
           ${stats.labourCost > 0 ? `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border-light);font-size:13px"><span>Jharkhand labour</span><span style="font-weight:600">₹${fmt(stats.labourCost)}</span></div>` : ''}
           ` : ''}
         ` : `<div class="empty-state" style="padding:1.5rem 0"><i class="ti ti-receipt"></i><p>No costs recorded this period</p></div>`}
@@ -2758,11 +2761,11 @@ function renderPayrollTab() {
                           .reduce((sum,a)=>sum+(Number(a.amount)||0), 0);
     const paid        = (cache.salary_payments||[]).filter(p=>p.staff===s&&p.month===mon)
                           .reduce((sum,p)=>sum+(Number(p.amount)||0), 0);
-    const net         = earned - adv;
-    const remaining   = net - paid;
-    // Food allowance: ₹FOOD_PER_DAY for each day physically attended (weekdays present; Sundays are off).
+    // Food allowance: ₹FOOD_PER_DAY for each day physically attended (weekdays present; Sundays are off). Paid together with salary.
     const foodDays    = weekdaysPresent;
     const foodAllow   = FOOD_PER_DAY * foodDays;
+    const net         = earned - adv + foodAllow;
+    const remaining   = net - paid;
     return { name:s, salary, salaryDay, period, daysPresent, daysAbsent, totalLogged, dailyRate, absentDeduction, earned, adv, net, paid, remaining, foodDays, foodAllow };
   });
 
@@ -2800,7 +2803,7 @@ function renderPayrollTab() {
 
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:0.75rem">
       <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)">Staff wage slips
-        <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:8px">Absent days deducted at daily rate</span>
+        <span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:8px">Net payable = earned − advances + food allowance</span>
       </div>
       <div style="overflow-x:auto"><table>
         <thead><tr>
@@ -3051,7 +3054,7 @@ function openSalarySlip(staffName, mon) {
   const advances    = cache.advances.filter(a=>a.staff===staffName&&a.date&&inRange(a.date,period.from,period.to));
   const advTotal    = advances.reduce((s,a)=>s+(Number(a.amount)||0),0);
   const paid        = (cache.salary_payments||[]).filter(p=>p.staff===staffName&&p.month===mon).reduce((s,p)=>s+(Number(p.amount)||0),0);
-  const net         = earned - advTotal;
+  const net         = earned - advTotal + foodAllow;
   const remaining   = net - paid;
   const [y,m]       = mon.split('-').map(Number);
   const monthLabel  = new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'});
@@ -3112,14 +3115,14 @@ function openSalarySlip(staffName, mon) {
             <td style="padding:8px 4px;color:var(--danger)">Advances deducted</td>
             <td style="padding:8px 4px;text-align:right;color:var(--danger)">−₹${fmt(advTotal)}</td>
           </tr>`:''}
+          ${foodAllow>0?`<tr style="border-bottom:1px solid var(--border-light)">
+            <td style="padding:8px 4px;color:var(--warning)">Food allowance (${foodDays}d × ₹${fmt(FOOD_PER_DAY)})</td>
+            <td style="padding:8px 4px;text-align:right;color:var(--warning)">+₹${fmt(foodAllow)}</td>
+          </tr>`:''}
           <tr style="background:var(--bg)">
             <td style="padding:10px 4px;font-weight:700;font-size:14px">Net payable</td>
             <td style="padding:10px 4px;text-align:right;font-weight:700;font-size:14px;color:var(--success)">₹${fmt(net)}</td>
           </tr>
-          ${foodAllow>0?`<tr style="border-bottom:1px solid var(--border-light)">
-            <td style="padding:8px 4px;color:var(--muted)">Food allowance given (${foodDays}d × ₹${fmt(FOOD_PER_DAY)})</td>
-            <td style="padding:8px 4px;text-align:right;color:var(--warning)">₹${fmt(foodAllow)}</td>
-          </tr>`:''}
           ${paid>0?`<tr style="border-bottom:1px solid var(--border-light)">
             <td style="padding:8px 4px;color:var(--muted)">Already paid</td>
             <td style="padding:8px 4px;text-align:right;color:var(--success)">₹${fmt(paid)}</td>
