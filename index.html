@@ -2731,6 +2731,52 @@ function staffPeriod(salaryDay, refMonth) {
 
 function inRange(date, from, to) { return date >= from && date <= to; }
 
+// Shift a 'YYYY-MM' string by delta months
+function addMonthsYM(ym, delta) {
+  let [y, m] = ym.split('-').map(Number);
+  m += delta;
+  while(m < 1)  { m += 12; y--; }
+  while(m > 12) { m -= 12; y++; }
+  return y+'-'+String(m).padStart(2,'0');
+}
+
+// Net owed and amount paid for one staff in one salary cycle (net = earned − advances + food)
+function staffNetPaid(staff, mon) {
+  const cfg       = STAFF_PAY_CONFIG[staff] || {};
+  const salary    = Number(cfg.salary) || 0;
+  const salaryDay = Number(cfg.salaryDay) || 1;
+  const period    = staffPeriod(salaryDay, mon);
+  let sundays = 0;
+  for(let d=new Date(period.from);d<=new Date(period.to);d.setDate(d.getDate()+1)){ if(d.getDay()===0) sundays++; }
+  const wAtt    = (cache.attendance||[]).filter(a=>a.staff===staff&&a.date&&inRange(a.date,period.from,period.to)&&new Date(a.date).getDay()!==0);
+  const wPresent= wAtt.filter(a=>a.present).length;
+  const absent  = wAtt.filter(a=>!a.present).length;
+  const total   = wAtt.length + sundays;
+  const daily   = total > 0 ? Math.round(salary/total) : 0;
+  const earned  = salary - daily*absent;
+  const adv     = (cache.advances||[]).filter(a=>a.staff===staff&&a.date&&inRange(a.date,period.from,period.to)).reduce((s,a)=>s+(Number(a.amount)||0),0);
+  const food    = FOOD_PER_DAY * wPresent;
+  const paid    = (cache.salary_payments||[]).filter(p=>p.staff===staff&&p.month===mon).reduce((s,p)=>s+(Number(p.amount)||0),0);
+  return { net: earned - adv + food, paid };
+}
+
+// Excess (over-payment) carried forward from the month BEFORE `mon` for a staff.
+// Chains backwards, stopping at the first month with no attendance and no payment.
+function staffCarryIn(staff, mon, depth) {
+  depth = depth || 0;
+  if(depth > 36) return 0;
+  const pm = addMonthsYM(mon, -1);
+  const salaryDay = Number((STAFF_PAY_CONFIG[staff]||{}).salaryDay) || 1;
+  const period = staffPeriod(salaryDay, pm);
+  const hasPay = (cache.salary_payments||[]).some(p=>p.staff===staff&&p.month===pm);
+  const hasAtt = (cache.attendance||[]).some(a=>a.staff===staff&&a.date&&inRange(a.date,period.from,period.to));
+  if(!hasPay && !hasAtt) return 0;               // nothing recorded → no excess to carry
+  const f = staffNetPaid(staff, pm);
+  const prevCarry = staffCarryIn(staff, pm, depth+1);
+  const rem = f.net - f.paid - prevCarry;        // negative = over-paid that month
+  return rem < 0 ? -rem : 0;
+}
+
 function renderPayrollTab() {
   const mon = payrollMonth || today().slice(0,7);
 
@@ -2765,8 +2811,9 @@ function renderPayrollTab() {
     const foodDays    = weekdaysPresent;
     const foodAllow   = FOOD_PER_DAY * foodDays;
     const net         = earned - adv + foodAllow;
-    const remaining   = net - paid;
-    return { name:s, salary, salaryDay, period, daysPresent, daysAbsent, totalLogged, dailyRate, absentDeduction, earned, adv, net, paid, remaining, foodDays, foodAllow };
+    const carryIn     = staffCarryIn(s, mon);   // excess over-paid last month → reduces this month
+    const remaining   = net - paid - carryIn;
+    return { name:s, salary, salaryDay, period, daysPresent, daysAbsent, totalLogged, dailyRate, absentDeduction, earned, adv, net, paid, remaining, foodDays, foodAllow, carryIn };
   });
 
   const totalSalary = rows.reduce((s,r)=>s+r.salary, 0);
@@ -2838,6 +2885,7 @@ function renderPayrollTab() {
             <td style="text-align:right;color:var(--success)">${r.paid?'₹'+fmt(r.paid):'—'}</td>
             <td style="text-align:right;font-weight:700;color:${r.remaining>0?'var(--warning)':r.remaining<0?'var(--danger)':'var(--success)'}">
               ${r.remaining===0?'<span style="color:var(--success);font-size:12px">✓ Settled</span>':'₹'+fmt(Math.abs(r.remaining))+(r.remaining<0?' <span style="font-size:10px">(excess)</span>':'')}
+              ${r.carryIn>0?`<div style="font-size:10px;color:var(--muted);font-weight:400">−₹${fmt(r.carryIn)} last-mo excess</div>`:''}
             </td>
             <td style="white-space:nowrap">
               <button class="btn-sm btn-primary" data-staff="${esc(r.name)}" data-amount="${r.remaining>0?r.remaining:0}" data-month="${mon}" onclick="openSalaryPayModal(this.dataset.staff,this.dataset.amount,this.dataset.month)">Pay</button>
@@ -3077,7 +3125,8 @@ function openSalarySlip(staffName, mon) {
   const advTotal    = advances.reduce((s,a)=>s+(Number(a.amount)||0),0);
   const paid        = (cache.salary_payments||[]).filter(p=>p.staff===staffName&&p.month===mon).reduce((s,p)=>s+(Number(p.amount)||0),0);
   const net         = earned - advTotal + foodAllow;
-  const remaining   = net - paid;
+  const carryIn     = staffCarryIn(staffName, mon);
+  const remaining   = net - paid - carryIn;
   const [y,m]       = mon.split('-').map(Number);
   const monthLabel  = new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'});
   modal(`<div class="modal" style="width:480px">
@@ -3145,7 +3194,11 @@ function openSalarySlip(staffName, mon) {
             <td style="padding:10px 4px;font-weight:700;font-size:14px">Net payable</td>
             <td style="padding:10px 4px;text-align:right;font-weight:700;font-size:14px;color:var(--success)">₹${fmt(net)}</td>
           </tr>
-          ${paid>0?`<tr style="border-bottom:1px solid var(--border-light)">
+          ${carryIn>0?`<tr style="border-bottom:1px solid var(--border-light)">
+            <td style="padding:8px 4px;color:var(--danger)">Last month excess (advance)</td>
+            <td style="padding:8px 4px;text-align:right;color:var(--danger)">−₹${fmt(carryIn)}</td>
+          </tr>`:''}
+          ${(paid>0||carryIn>0)?`<tr style="border-bottom:1px solid var(--border-light)">
             <td style="padding:8px 4px;color:var(--muted)">Already paid</td>
             <td style="padding:8px 4px;text-align:right;color:var(--success)">₹${fmt(paid)}</td>
           </tr>
