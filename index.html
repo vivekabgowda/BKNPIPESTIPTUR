@@ -3001,6 +3001,18 @@ async function saveKarchi() {
 }
 
 function openSalaryPayModal(staffName, suggestedAmt, month) {
+  const payments = (cache.salary_payments||[]).filter(p=>p.staff===staffName&&p.month===month)
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const paidTotal = payments.reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const historyHtml = payments.length ? `
+      <div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:0.75rem">
+        <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px">Payments recorded this month — total ₹${fmt(paidTotal)}
+          <span style="font-weight:400">(delete any duplicate)</span></div>
+        ${payments.map(p=>`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-light);font-size:13px">
+          <span>${fmtDate(p.date)} &nbsp;<strong>₹${fmt(p.amount)}</strong>${p.note?' <span style="color:var(--muted);font-size:11px">('+esc(p.note)+')</span>':''}</span>
+          <button class="btn-sm btn-danger" onclick="delSalaryPay('${p.id}','${esc(staffName)}','${month}','${suggestedAmt||0}')">Delete</button>
+        </div>`).join('')}
+      </div>` : '';
   modal(`<div class="modal">
     <div class="modal-header">
       <h3 style="font-size:15px;font-weight:600">Pay salary — ${esc(staffName)}</h3>
@@ -3012,12 +3024,22 @@ function openSalaryPayModal(staffName, suggestedAmt, month) {
         <div class="form-group"><label>Amount (₹)</label><input type="number" id="spay-amt" min="0" inputmode="numeric" value="${suggestedAmt||''}" placeholder="Amount paid"></div>
       </div>
       <div class="form-group"><label>Note (optional)</label><input type="text" id="spay-note" placeholder="e.g. cash payment"></div>
+      ${historyHtml}
     </div>
     <div class="modal-footer">
       <button onclick="closeModal()">Cancel</button>
       <button class="btn-primary" onclick="saveSalaryPay('${esc(staffName)}','${month}')">Mark paid</button>
     </div>
   </div>`);
+}
+
+async function delSalaryPay(id, staffName, month, suggestedAmt) {
+  if(!confirm('Delete this salary payment?')) return;
+  try {
+    await col('salary_payments').doc(id).delete();
+    // reopen modal so the updated list shows (cache updates via listener)
+    setTimeout(()=>openSalaryPayModal(staffName, suggestedAmt, month), 300);
+  } catch(e) { alert('Delete failed: '+e.message); }
 }
 
 async function saveSalaryPay(staffName, month) {
