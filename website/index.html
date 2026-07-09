@@ -76,7 +76,8 @@
   --ease:       cubic-bezier(0.22, 1, 0.36, 1);
 }
 html { scroll-behavior: smooth; }
-body { font-family: var(--sans); color: var(--text-dark); background: var(--paper); line-height: 1.7; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+html, body { overflow-x: clip; }
+body { font-family: var(--sans); color: var(--text-dark); background: var(--paper); line-height: 1.7; -webkit-font-smoothing: antialiased; }
 img { max-width: 100%; display: block; }
 a { color: inherit; text-decoration: none; }
 
@@ -117,8 +118,8 @@ nav.main a:hover::after { width: 100%; }
 
 /* ── HERO ── */
 .hero { position: relative; min-height: 100svh; display: flex; align-items: center; background: var(--ink); overflow: hidden; padding: 140px 0 90px; }
-.hero-bg { position: absolute; inset: -6%; background: url('images/pipes-yard.jpeg') center/cover no-repeat; animation: kenburns 26s ease-in-out infinite alternate; }
-@keyframes kenburns { from { transform: scale(1) translateY(0); } to { transform: scale(1.12) translateY(-2%); } }
+.hero-bg { position: absolute; inset: 0; background: url('images/pipes-yard.jpeg') center/cover no-repeat; animation: kenburns 26s ease-in-out infinite alternate; }
+@keyframes kenburns { from { transform: scale(1.02); } to { transform: scale(1.14); } }
 .hero-veil { position: absolute; inset: 0; background: linear-gradient(100deg, rgba(11,17,32,0.96) 22%, rgba(11,17,32,0.72) 55%, rgba(11,17,32,0.42)); }
 .hero-inner { position: relative; z-index: 2; }
 .hero h1 { font-size: clamp(44px, 7vw, 88px); color: var(--white); max-width: 830px; margin: 26px 0 8px; }
@@ -210,6 +211,8 @@ nav.main a:hover::after { width: 100%; }
 .contact-sec { background: var(--ink-soft); color: var(--white); }
 .contact-sec .eyebrow { color: var(--gold-soft); }
 .contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 70px; margin-top: 60px; }
+.contact-grid > * { min-width: 0; }
+.c-links a { max-width: 100%; overflow-wrap: anywhere; text-align: center; }
 .addr-block { border-top: 1px solid var(--gold-dim); padding: 24px 0; }
 .addr-block .t { font-size: 12px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase; color: var(--gold-soft); }
 .addr-block p { font-size: 14px; color: var(--text-light); font-weight: 300; margin-top: 8px; }
@@ -258,8 +261,8 @@ footer { background: var(--ink); color: rgba(247,245,240,0.5); padding: 64px 0 4
   .why-grid { grid-template-columns: 1fr; }
   .gal-grid { grid-template-columns: 1fr; }
   .hero h1 { font-size: 40px; }
-  .hero-foot { position: relative; margin-top: 60px; }
-  .hero { padding-bottom: 0; }
+  .hero { display: block; min-height: 0; padding-bottom: 0; }
+  .hero-foot { position: relative; margin-top: 64px; }
 }
 </style>
 </head>
