@@ -4656,17 +4656,36 @@ function renderGSTInvoiceTab() {
   const totalGST    = filtered.reduce((s,i)=>s+(Number(i.gstAmount)||0),0);
   const totalGrand  = filtered.reduce((s,i)=>s+(Number(i.grandTotal)||0),0);
   const yearOpts    = [...new Set([year,...allYears])].map(y=>`<option value="${y}" ${gstInvoiceFilter===y?'selected':''}>${y}</option>`).join('');
+  // Month dropdown: calendar months (GST filing periods) that have invoices in this FY
+  const monthCounts = {};
+  yearFiltered.forEach(i=>{ const ym=(i.invoiceDate||'').slice(0,7); if(ym) monthCounts[ym]=(monthCounts[ym]||0)+1; });
+  const months = Object.keys(monthCounts).sort().reverse();
+  const selectedMonth = (gstFromDate && gstToDate && gstFromDate.slice(0,7)===gstToDate.slice(0,7)
+    && gstFromDate.endsWith('-01') && gstToDate===monthEnd(gstFromDate.slice(0,7))) ? gstFromDate.slice(0,7) : '';
+  const monthOpts = `<option value="">All months</option>` + months.map(ym=>{
+    const [y,m]=ym.split('-').map(Number);
+    const label = new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'});
+    return `<option value="${ym}" ${selectedMonth===ym?'selected':''}>${label} (${monthCounts[ym]} bills)</option>`;
+  }).join('');
   document.getElementById('gst-tab-content').innerHTML = `
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <span style="font-size:13px;font-weight:600;color:var(--muted)">Year:</span>
       <select style="font-size:13px;padding:5px 10px" onchange="gstInvoiceFilter=this.value;gstFromDate='';gstToDate='';renderGSTInvoiceTab()">${yearOpts}</select>
+      <span style="font-size:13px;font-weight:600;color:var(--muted);margin-left:4px">GST Month:</span>
+      <select style="font-size:13px;padding:5px 10px;font-weight:600" onchange="gstSelectMonth(this.value)">${monthOpts}</select>
       <span style="font-size:13px;font-weight:600;color:var(--muted);margin-left:4px">From:</span>
       <input type="date" value="${gstFromDate}" style="font-size:13px;padding:4px 8px" onchange="gstFromDate=this.value;renderGSTInvoiceTab()">
       <span style="font-size:13px;font-weight:600;color:var(--muted)">To:</span>
       <input type="date" value="${gstToDate}" style="font-size:13px;padding:4px 8px" onchange="gstToDate=this.value;renderGSTInvoiceTab()">
       ${gstFromDate||gstToDate?`<button class="btn-sm" onclick="gstFromDate='';gstToDate='';renderGSTInvoiceTab()">✕ Clear</button>`:''}
-      ${filtered.length>1?`<button class="btn-sm" style="margin-left:auto;color:var(--brand);border-color:var(--brand)" onclick="printAllGSTInvoices()"><i class="ti ti-printer"></i> Print All (${filtered.length})</button>`:''}
+      <div style="margin-left:auto;display:flex;gap:6px">
+        ${filtered.length?`<button class="btn-sm btn-excel" onclick="exportGSTForAuditor()" title="Download summary CSV for auditor"><i class="ti ti-table-export"></i> Auditor CSV</button>`:''}
+        ${filtered.length>1?`<button class="btn-sm" style="color:var(--brand);border-color:var(--brand)" onclick="printAllGSTInvoices()"><i class="ti ti-printer"></i> Print All (${filtered.length})</button>`:''}
+      </div>
     </div>
+    ${selectedMonth?`<div style="background:var(--brand-light);border:1px solid var(--brand);border-radius:8px;padding:8px 14px;font-size:12.5px;color:var(--brand);margin-bottom:12px">
+      📋 Showing <strong>${new Date(Number(selectedMonth.slice(0,4)),Number(selectedMonth.slice(5,7))-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'})}</strong> bills — for the GST return you file by the 10th of the following month. Use <strong>Auditor CSV</strong> + <strong>Print All</strong> to send everything to your auditor.
+    </div>`:''}
     ${filtered.length?`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1rem">
       <div class="stat-card"><div class="stat-label">Taxable Value</div><div class="stat-value">₹${fmt(totalTaxable)}</div></div>
       <div class="stat-card"><div class="stat-label">Total GST</div><div class="stat-value">₹${fmt(totalGST)}</div></div>
@@ -4701,6 +4720,49 @@ function renderGSTInvoiceTab() {
         </tr>`).join('')}</tbody>
       </table>
     </div>`}`;
+}
+
+// Last day of a 'YYYY-MM' month as 'YYYY-MM-DD'
+function monthEnd(ym) {
+  const [y,m] = ym.split('-').map(Number);
+  const d = new Date(y, m, 0); // day 0 of next month = last day of this month
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function gstSelectMonth(ym) {
+  if(!ym) { gstFromDate=''; gstToDate=''; }
+  else    { gstFromDate = ym+'-01'; gstToDate = monthEnd(ym); }
+  renderGSTInvoiceTab();
+}
+
+function exportGSTForAuditor() {
+  const invoices = [...(cache.gst_invoices||[])].sort((a,b)=>(a.invoiceDate||'').localeCompare(b.invoiceDate||''));
+  const filtered = invoices.filter(i=>{
+    if(gstFinYear(i.invoiceDate)!==gstInvoiceFilter) return false;
+    if(gstFromDate && i.invoiceDate < gstFromDate) return false;
+    if(gstToDate   && i.invoiceDate > gstToDate)   return false;
+    return true;
+  });
+  if(!filtered.length) { alert('No invoices in this range'); return; }
+  const headers = ['Invoice No','Date','Customer','Customer GSTIN','Supply Type','GST Rate %','Taxable Value','CGST','SGST','IGST','Total GST','Grand Total'];
+  const rows = filtered.map(i=>[
+    i.invoiceNo, i.invoiceDate, i.customer, i.customerGSTIN||'',
+    i.supplyType==='intrastate'?'Intra-state':'Inter-state', i.gstRate||0,
+    Number(i.taxableTotal)||0, Number(i.cgst)||0, Number(i.sgst)||0, Number(i.igst)||0,
+    Number(i.gstAmount)||0, Number(i.grandTotal)||0
+  ]);
+  // Totals row for quick auditor verification
+  rows.push(['TOTAL','','','','','',
+    filtered.reduce((s,i)=>s+(Number(i.taxableTotal)||0),0),
+    filtered.reduce((s,i)=>s+(Number(i.cgst)||0),0),
+    filtered.reduce((s,i)=>s+(Number(i.sgst)||0),0),
+    filtered.reduce((s,i)=>s+(Number(i.igst)||0),0),
+    filtered.reduce((s,i)=>s+(Number(i.gstAmount)||0),0),
+    filtered.reduce((s,i)=>s+(Number(i.grandTotal)||0),0)
+  ]);
+  const label = (gstFromDate && gstToDate && gstFromDate.slice(0,7)===gstToDate.slice(0,7))
+    ? gstFromDate.slice(0,7) : (gstFromDate||gstToDate ? gstFromDate+'_to_'+gstToDate : 'FY'+gstInvoiceFilter);
+  downloadCSV('gst_invoices_'+label+'.csv', headers, rows);
 }
 
 function printAllGSTInvoices() {
