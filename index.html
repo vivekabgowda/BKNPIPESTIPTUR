@@ -4786,7 +4786,7 @@ function printAllGSTInvoices() {
     const rows = (inv.items||[]).map((item,i)=>`
       <tr>
         <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:center">${i+1}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1">${esc(item.pipeType)} RCC Spun Pipe</td>
+        <td style="padding:6px 8px;border:1px solid #cbd5e1">${esc(gstItemDesc(item.pipeType))}</td>
         <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:center">${esc(item.hsn||'6810')}</td>
         <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:center">${item.qty}</td>
         <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:right">&#8377;${fmt(item.rate)}</td>
@@ -5027,7 +5027,7 @@ function openQuotationPrint(id) {
   const rows = (q.items||[]).map((item,idx)=>`
     <tr>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${idx+1}</td>
-      <td style="padding:7px 10px;border:1px solid #cbd5e1">${esc(item.pipeType)} RCC Hume Pipe</td>
+      <td style="padding:7px 10px;border:1px solid #cbd5e1">${esc(gstItemDesc(item.pipeType))}</td>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${item.qty}</td>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">Nos</td>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:right">₹${fmt(item.rate)}</td>
@@ -5181,13 +5181,21 @@ function openGSTInvoiceModal(id) {
 function gstAddRow(pipeType, qty, rate) {
   _gstRowSeq++;
   const i       = _gstRowSeq;
-  const pipeOpts = PIPE_TYPES.map(t=>`<option value="${esc(t)}" ${t===(pipeType||'')?'selected':''}>${esc(t)}</option>`).join('');
-  const defRate  = rate !== undefined ? rate : (Number((cache.pipe_rates||{})[PIPE_TYPES[0]])||0);
+  // Datalist of standard pipe types (shared, created once) — field itself is free text, fully editable
+  if(!document.getElementById('pipe-type-options')) {
+    const dl = document.createElement('datalist');
+    dl.id = 'pipe-type-options';
+    dl.innerHTML = PIPE_TYPES.map(t=>`<option value="${esc(t)}">`).join('');
+    document.body.appendChild(dl);
+  }
+  const defRate  = rate !== undefined ? rate : (Number((cache.pipe_rates||{})[pipeType||PIPE_TYPES[0]])||0);
   const tr = document.createElement('tr');
   tr.id = 'gst-row-'+i;
   tr.innerHTML = `
     <td style="padding:4px 6px">
-      <select id="gi-type-${i}" style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;width:100%">${pipeOpts}</select>
+      <input type="text" id="gi-type-${i}" list="pipe-type-options" value="${esc(pipeType||'')}" placeholder="e.g. 600mm or any item"
+        style="font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;width:100%;min-width:110px"
+        onchange="gstTypeChanged(${i})">
     </td>
     <td style="padding:4px 6px">
       <input type="number" id="gi-qty-${i}" value="${qty||''}" min="1" inputmode="numeric" placeholder="0"
@@ -5203,6 +5211,23 @@ function gstAddRow(pipeType, qty, rate) {
     </td>`;
   document.getElementById('gst-items-tbody').appendChild(tr);
   gstRecalcAll();
+}
+
+// Item description for invoice/quotation prints: standard sizes get the pipe suffix, custom items print as typed
+function gstItemDesc(pipeType) {
+  const t = (pipeType||'').trim();
+  return PIPE_TYPES.includes(t) ? t+' RCC Spun Pipe' : t;
+}
+
+// When pipe type changes, auto-fill saved rate for known types (rate stays editable)
+function gstTypeChanged(i) {
+  const t = document.getElementById('gi-type-'+i)?.value.trim();
+  const saved = Number((cache.pipe_rates||{})[t])||0;
+  if(saved > 0) {
+    const rateEl = document.getElementById('gi-rate-'+i);
+    if(rateEl) { rateEl.value = saved; }
+  }
+  gstRecalcRow(i);
 }
 
 function gstRemoveRow(i) {
@@ -5307,7 +5332,7 @@ function openGSTInvoicePrint(id) {
   const rows = (inv.items||[]).map((item,idx)=>`
     <tr>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${idx+1}</td>
-      <td style="padding:7px 10px;border:1px solid #cbd5e1">${esc(item.pipeType)} RCC Hume Pipe</td>
+      <td style="padding:7px 10px;border:1px solid #cbd5e1">${esc(gstItemDesc(item.pipeType))}</td>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${esc(item.hsn||'6810')}</td>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${item.qty}</td>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">Nos</td>
