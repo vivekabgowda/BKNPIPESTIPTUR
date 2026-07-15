@@ -204,6 +204,13 @@ function fmt(n){ n = Math.round(Number(n)||0); return n.toLocaleString('en-IN');
 function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDate(s){ if(!s) return '—'; const d=new Date(s+'T00:00:00'); return d.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+// Surface any silent async failure (e.g. Firestore permission-denied) instead of failing invisibly
+window.addEventListener('unhandledrejection', e => {
+  const msg = (e.reason && e.reason.message) || String(e.reason||'Unknown error');
+  if(/permission|denied|insufficient/i.test(msg)) alert('Database permission error: '+msg+'\n\nOpen Firebase console → Firestore → Rules and allow signed-in users (see setup steps).');
+  else if(/network|unavailable|offline/i.test(msg)) console.warn('Network issue:', msg);
+  else alert('Error: '+msg);
+});
 function col(name){ return firestoreDb.collection(COL_PREFIX+name); }
 function modal(html){ document.getElementById('modal-container').innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()">${html}</div>`; }
 function closeModal(){ document.getElementById('modal-container').innerHTML=''; }
@@ -409,9 +416,64 @@ function renderSales(){
     <div class="tab-bar">
       <button class="tab ${salesTab==='orders'?'active':''}" onclick="salesTab='orders';renderSales()">Orders</button>
       <button class="tab ${salesTab==='customers'?'active':''}" onclick="salesTab='customers';renderSales()">Customers</button>
+      <button class="tab ${salesTab==='due'?'active':''}" onclick="salesTab='due';renderSales()">Balance Due</button>
     </div>
     <div id="sales-panel"></div>`;
-  if(salesTab==='orders') renderOrdersTab(); else renderCustomersTab();
+  if(salesTab==='orders') renderOrdersTab();
+  else if(salesTab==='due') renderDueTab();
+  else renderCustomersTab();
+}
+
+function renderDueTab(){
+  const dueOrders = cache.orders.filter(o=>(Number(o.balance)||0) > 0)
+    .sort((a,b)=>(a.orderDate||'').localeCompare(b.orderDate||'')); // oldest first — chase these
+  const totalDue = dueOrders.reduce((s,o)=>s+(Number(o.balance)||0),0);
+  // Group by customer for the summary cards
+  const byCust = {};
+  dueOrders.forEach(o=>{
+    const k=(o.customer||'').trim().toLowerCase(); if(!k) return;
+    if(!byCust[k]) byCust[k]={name:(o.customer||'').trim(), phone:o.phone||'', due:0, orders:0, oldest:o.orderDate||''};
+    byCust[k].due += Number(o.balance)||0; byCust[k].orders++;
+  });
+  const custs = Object.values(byCust).sort((a,b)=>b.due-a.due);
+  document.getElementById('sales-panel').innerHTML = `
+    <div class="stat-card" style="margin-bottom:1rem"><div class="stat-label">Total outstanding (${custs.length} customer${custs.length===1?'':'s'}, ${dueOrders.length} sale${dueOrders.length===1?'':'s'})</div>
+      <div class="stat-value" style="color:var(--warning)">₹${fmt(totalDue)}</div></div>
+    ${dueOrders.length===0?`<div class="card empty-state"><i class="ti ti-circle-check"></i>No pending balances — everyone has paid ✓</div>`:`
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Customer</th><th>Since</th><th>Poles</th><th style="text-align:right">Total</th><th style="text-align:right">Balance due</th><th></th></tr></thead>
+        <tbody>${dueOrders.map(o=>{
+          const days = Math.floor((new Date(today()) - new Date(o.orderDate||today()))/86400000);
+          return `<tr>
+          <td style="font-weight:600">${esc(o.customer)}${o.phone?`<div style="font-size:11px;color:var(--muted)">${esc(o.phone)}</div>`:''}</td>
+          <td style="white-space:nowrap;font-size:12px">${fmtDate(o.orderDate)}${days>0?`<div style="font-size:11px;color:${days>30?'var(--danger)':'var(--muted)'}">${days} days</div>`:''}</td>
+          <td style="font-size:12px">${POLE_TYPES.filter(t=>(o.poles||{})[t]>0).map(t=>`${t}×${o.poles[t]}`).join(', ')||'—'}</td>
+          <td style="text-align:right">₹${fmt(o.total)}</td>
+          <td style="text-align:right;font-weight:700;color:var(--warning)">₹${fmt(o.balance)}</td>
+          <td style="text-align:right;white-space:nowrap">
+            ${o.phone?`<button class="btn-sm" style="color:#16a34a;border-color:#16a34a" onclick="remindBalance('${o.id}')" title="Send WhatsApp reminder"><i class="ti ti-brand-whatsapp"></i> Remind</button>`:''}
+            <button class="btn-sm" onclick="openPayModal('${o.id}')">Pay</button>
+          </td>
+        </tr>`;}).join('')}</tbody></table></div>
+    </div>`}`;
+}
+
+function remindBalance(orderId){
+  const o = cache.orders.find(x=>x.id===orderId);
+  if(!o) return;
+  const p = cache.gst_profile||{};
+  const factoryPhone = p.phone ? p.phone.split(/[\n,]/).map(l=>l.trim()).filter(Boolean).join(' / ') : '';
+  const poleList = POLE_TYPES.filter(t=>(o.poles||{})[t]>0).map(t=>`${t} × ${o.poles[t]}`).join(', ');
+  const text = [
+    `*BKN ELECTRIC POLES, Kunigal*${factoryPhone?' — Ph: '+factoryPhone:''}`,
+    ``,
+    `Namaskara ${o.customer},`,
+    `Gentle reminder — balance of *₹${fmt(o.balance)}* is pending for poles purchased on ${fmtDate(o.orderDate)} (${poleList}).`,
+    `Kindly arrange the payment. Thank you 🙏`,
+  ].join('\n');
+  const firstPhone = (o.phone||'').split(',')[0].replace(/\D/g,'');
+  window.open(`https://wa.me/91${firstPhone}?text=${encodeURIComponent(text)}`, '_blank');
 }
 function renderOrdersTab(){
   const list = [...cache.orders].sort((a,b)=>(b.orderDate||'').localeCompare(a.orderDate||''));
@@ -554,8 +616,15 @@ async function saveOrder(id){
     status: old?(old.status||'pending'):'pending',
     notes: document.getElementById('o-notes').value.trim(),
   };
-  await col('orders').doc(id||uid()).set(data);
-  closeModal();
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+  try {
+    await col('orders').doc(id||uid()).set(data);
+    closeModal();
+  } catch(e) {
+    alert('Save failed: '+e.message+'\n\nIf it says "permission denied" — check Firestore Rules in Firebase console (must allow signed-in users).');
+    if(btn){ btn.disabled=false; btn.textContent='Save sale'; }
+  }
 }
 async function delOrder(id){ if(confirm('Delete this sale?')) await col('orders').doc(id).delete(); }
 
