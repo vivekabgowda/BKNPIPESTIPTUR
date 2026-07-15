@@ -199,9 +199,13 @@ function numToWords(n){
 // ── FIREBASE / AUTH / DATA ───────────────────────────────────────────────────
 function saveConfig(){
   const raw = document.getElementById('firebase-config').value.trim();
+  // Accept any paste format: full "const firebaseConfig = {...};" block, JS object, or JSON
+  const a = raw.indexOf('{'), b = raw.lastIndexOf('}');
+  if(a === -1 || b === -1 || b <= a){ showSetupErr('Paste the full firebaseConfig { ... } block from Firebase console'); return; }
+  const objText = raw.slice(a, b+1);
   let cfg;
-  try { cfg = JSON.parse(raw.replace(/(\w+):/g,'"$1":').replace(/""(\w+)"":/g,'"$1":').replace(/'/g,'"')); }
-  catch(e){ try { cfg = JSON.parse(raw); } catch(e2){ showSetupErr('Cannot parse config: '+e2.message); return; } }
+  try { cfg = (new Function('return ('+objText+')'))(); }
+  catch(e){ try { cfg = JSON.parse(objText); } catch(e2){ showSetupErr('Cannot parse config: '+e2.message); return; } }
   if(!cfg.projectId || !cfg.apiKey){ showSetupErr('Missing projectId or apiKey'); return; }
   localStorage.setItem('bknpoles_firebase_config', JSON.stringify(cfg));
   launchApp(cfg);
