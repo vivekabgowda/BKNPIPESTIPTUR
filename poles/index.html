@@ -427,6 +427,7 @@ function renderOrdersTab(){
           <td style="text-align:right;font-weight:700;color:${(o.balance||0)>0?'var(--warning)':'var(--success)'}">${(o.balance||0)>0?'₹'+fmt(o.balance):'✓ Paid'}</td>
           <td>${o.status==='delivered'?'<span class="pill green">Delivered</span>':'<span class="pill amber">Pending</span>'}</td>
           <td style="text-align:right;white-space:nowrap">
+            <button class="btn-sm" style="color:#16a34a;border-color:#16a34a" onclick="shareSale('${o.id}')" title="Send receipt on WhatsApp"><i class="ti ti-brand-whatsapp"></i></button>
             ${(o.balance||0)>0?`<button class="btn-sm" onclick="openPayModal('${o.id}')">Pay</button>`:''}
             ${o.status!=='delivered'?`<button class="btn-sm" style="color:var(--success);border-color:var(--success)" onclick="markDelivered('${o.id}')">Deliver</button>`:''}
             <button class="btn-sm" onclick="openOrderModal('${o.id}')">Edit</button>
@@ -557,6 +558,30 @@ async function saveOrder(id){
   closeModal();
 }
 async function delOrder(id){ if(confirm('Delete this sale?')) await col('orders').doc(id).delete(); }
+
+function shareSale(orderId){
+  const o = cache.orders.find(x=>x.id===orderId);
+  if(!o) return;
+  const p = cache.gst_profile||{};
+  const factoryPhone = p.phone ? p.phone.split(/[\n,]/).map(l=>l.trim()).filter(Boolean).join(' / ') : '';
+  const poleList = POLE_TYPES.filter(t=>(o.poles||{})[t]>0).map(t=>`${t} × ${o.poles[t]}`).join(', ');
+  const text = [
+    `*BKN ELECTRIC POLES, Kunigal*${factoryPhone?' — Ph: '+factoryPhone:''}`,
+    ``,
+    `Customer: ${o.customer}${o.phone?' ('+o.phone+')':''}`,
+    `Poles: ${poleList||'—'}`,
+    `Total: ₹${fmt(o.total)} | Advance: ₹${fmt(o.advance)} | Balance: ₹${fmt(o.balance)}`,
+    `Date: ${fmtDate(o.orderDate)}`,
+    o.status==='delivered' ? `Status: Delivered ✓` : false,
+    o.notes ? `Note: ${o.notes}` : false,
+  ].filter(s=>s!==false&&s!==undefined&&s!==null).join('\n');
+  // Open directly to the customer's WhatsApp (first number if multiple)
+  const firstPhone = (o.phone||'').split(',')[0].replace(/\D/g,'');
+  const waUrl = firstPhone
+    ? `https://wa.me/91${firstPhone}?text=${encodeURIComponent(text)}`
+    : `https://wa.me/?text=${encodeURIComponent(text)}`;
+  window.open(waUrl, '_blank');
+}
 async function markDelivered(id){
   const o = cache.orders.find(x=>x.id===id); if(!o) return;
   await col('orders').doc(id).update({ status:'delivered', deliveredDate: today() });
