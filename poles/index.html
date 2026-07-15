@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#7c2d12">
+<title>BKN Electric Poles — Kunigal</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.47.0/tabler-icons.min.css">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --brand:#7c2d12; --brand-light:#fff7ed; --brand-mid:#ea580c;
+  --bg:#f8fafc; --card:#ffffff; --text:#0f172a; --muted:#64748b;
+  --border:#e2e8f0; --border-light:#f1f5f9;
+  --success:#16a34a; --success-bg:#f0fdf4; --danger:#dc2626; --danger-bg:#fef2f2; --warning:#d97706;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+html{-webkit-text-size-adjust:100%}
+body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
+button{font-family:var(--font);cursor:pointer}
+input,select,textarea{font-family:var(--font);font-size:14px;padding:9px 12px;border:1px solid var(--border);border-radius:8px;width:100%;background:#fff;color:var(--text)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--brand-mid);outline-offset:-1px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:var(--bg);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:9px 14px}
+td{padding:9px 14px;border-top:1px solid var(--border-light)}
+
+/* layout */
+#app{display:none;min-height:100vh}
+.sidebar{position:fixed;left:0;top:0;bottom:0;width:212px;background:#1a0e08;color:#fff;padding:18px 0;z-index:50;overflow-y:auto}
+.sidebar .logo{padding:0 18px 16px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:10px}
+.sidebar .logo .t{font-weight:800;font-size:15px;letter-spacing:.02em}
+.sidebar .logo .s{font-size:10.5px;color:#f59e0b;letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
+.nav-item{display:flex;align-items:center;gap:11px;padding:11px 18px;color:rgba(255,255,255,.68);font-size:13.5px;font-weight:500;border:none;background:none;width:100%;text-align:left}
+.nav-item i{font-size:18px}
+.nav-item.active{color:#fff;background:rgba(234,88,12,.22);border-right:3px solid var(--brand-mid)}
+.main{margin-left:212px;padding:0 1.5rem 5rem}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 0 12px;gap:10px;flex-wrap:wrap}
+.topbar h2{font-size:19px;font-weight:700}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:1.1rem 1.25rem;margin-bottom:.9rem}
+.btn-primary{background:var(--brand-mid);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:13.5px;font-weight:600}
+.btn-primary:disabled{opacity:.6}
+.btn-sm{background:#fff;border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12px;color:var(--text)}
+.btn-danger{color:var(--danger);border-color:#fecaca}
+.btn-excel{border-color:#16a34a;color:#16a34a}
+.tab-bar{display:flex;gap:6px;margin-bottom:1rem;flex-wrap:wrap}
+.tab{padding:8px 16px;font-size:13px;font-weight:600;border:1px solid var(--border);background:#fff;border-radius:8px;color:var(--muted)}
+.tab.active{background:var(--brand-mid);border-color:var(--brand-mid);color:#fff}
+.stat-card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 16px}
+.stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.stat-value{font-size:20px;font-weight:800;margin-top:3px}
+.empty-state{text-align:center;color:var(--muted);padding:2.2rem 1rem;font-size:13.5px}
+.empty-state i{display:block;font-size:30px;margin-bottom:8px;opacity:.5}
+.form-group{margin-bottom:12px}
+.form-group label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px}
+.form-row{display:grid;gap:10px}
+.cols-2{grid-template-columns:1fr 1fr}
+.cols-3{grid-template-columns:1fr 1fr 1fr}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px}
+.pill.green{background:var(--success-bg);color:var(--success)}
+.pill.red{background:var(--danger-bg);color:var(--danger)}
+.pill.amber{background:#fffbeb;color:var(--warning)}
+
+/* modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:100;display:flex;align-items:flex-start;justify-content:center;padding:24px 12px;overflow-y:auto}
+.modal{background:#fff;border-radius:14px;width:560px;max-width:100%;margin-bottom:40px}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border)}
+.modal-header h3{font-size:15px;font-weight:700}
+.modal-body{padding:16px 18px}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;padding:13px 18px;border-top:1px solid var(--border)}
+.modal-footer button{padding:9px 16px;border-radius:8px;border:1px solid var(--border);background:#fff;font-size:13px}
+.modal-footer .btn-primary{border:none}
+
+/* setup + login */
+.gate{min-height:100vh;display:none;align-items:center;justify-content:center;padding:20px;background:linear-gradient(160deg,#1a0e08,#7c2d12)}
+.gate .box{background:#fff;border-radius:16px;padding:28px;width:430px;max-width:100%}
+.gate h1{font-size:20px;margin-bottom:4px}
+.gate .sub{font-size:12.5px;color:var(--muted);margin-bottom:18px}
+.config-input{font-family:monospace;font-size:11.5px;min-height:130px}
+#setup-error,#login-error{color:var(--danger);font-size:12.5px;margin-top:8px;min-height:16px}
+
+/* mobile */
+.mobile-tabs{display:none}
+@media(max-width:860px){
+  .sidebar{display:none}
+  .main{margin-left:0;padding:0 .9rem 6rem}
+  .mobile-tabs{display:flex;position:fixed;bottom:0;left:0;right:0;background:#1a0e08;z-index:60;justify-content:space-around;padding:6px 2px calc(6px + env(safe-area-inset-bottom))}
+  .mobile-tabs button{background:none;border:none;color:rgba(255,255,255,.6);font-size:9.5px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 6px}
+  .mobile-tabs button i{font-size:19px}
+  .mobile-tabs button.active{color:#fb923c}
+  .cols-3{grid-template-columns:1fr}
+  .cols-2{grid-template-columns:1fr}
+}
+@media print{
+  .sidebar,.mobile-tabs,.topbar button,.no-print{display:none!important}
+  .main{margin:0}
+  body{background:#fff}
+}
+</style>
+</head>
+<body>
+
+<!-- SETUP SCREEN -->
+<div class="gate" id="setup-screen">
+  <div class="box">
+    <h1>⚡ BKN Electric Poles — Kunigal</h1>
+    <div class="sub">Paste the same Firebase config used in the Pipes app. Data is kept in separate collections, so nothing mixes.</div>
+    <div class="form-group">
+      <label>Firebase config (JSON)</label>
+      <textarea class="config-input" id="firebase-config" placeholder='{"apiKey":"AIzaSy...","authDomain":"...","projectId":"...","appId":"..."}'></textarea>
+      <div id="setup-error"></div>
+    </div>
+    <button class="btn-primary" style="width:100%" onclick="saveConfig()">Connect</button>
+  </div>
+</div>
+
+<!-- LOGIN SCREEN -->
+<div class="gate" id="login-screen">
+  <div class="box">
+    <h1>⚡ BKN Electric Poles — Kunigal</h1>
+    <div class="sub">Sign in to continue</div>
+    <div class="form-group"><label>Email</label><input type="email" id="login-email" autocomplete="username"></div>
+    <div class="form-group"><label>Password</label><input type="password" id="login-pass" autocomplete="current-password"></div>
+    <div id="login-error"></div>
+    <button class="btn-primary" style="width:100%" onclick="doLogin()">Sign in</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="sidebar">
+    <div class="logo"><div class="t">BKN ELECTRIC POLES</div><div class="s">Kunigal Unit</div></div>
+    <div id="nav"></div>
+  </div>
+  <div class="main">
+    <div class="topbar"><h2 id="page-title">Dashboard</h2><div id="topbar-action"></div></div>
+    <div id="content"></div>
+  </div>
+  <div class="mobile-tabs" id="mobile-tabs"></div>
+</div>
+<div id="modal-container"></div>
+
+<script>
+// ── CONSTANTS ────────────────────────────────────────────────────────────────
+const POLE_TYPES = ['8 Mtr', '200 KG', '300 KG'];
+const MATERIALS = [
+  { id:'msand',  label:'M-Sand',              unit:'Tons' },
+  { id:'cement', label:'Cement',              unit:'Bags' },
+  { id:'jelly20',label:'20mm Jelly',          unit:'Tons' },
+  { id:'jelly6', label:'6mm Jelly',           unit:'Tons' },
+  { id:'wire4',  label:'4mm Prestressed Wire',unit:'Kg'   },
+];
+const PARTNERS = ['Bhoomika', 'Balakrishna'];
+const PAGES = [
+  { id:'dashboard', label:'Dashboard', icon:'ti-layout-dashboard' },
+  { id:'production',label:'Production',icon:'ti-tools' },
+  { id:'sales',     label:'Sales',     icon:'ti-clipboard-list' },
+  { id:'materials', label:'Materials', icon:'ti-package' },
+  { id:'advances',  label:'Advances',  icon:'ti-wallet' },
+  { id:'gstbilling',label:'GST Bills', icon:'ti-file-invoice' },
+  { id:'settings',  label:'Settings',  icon:'ti-adjustments-horizontal' },
+];
+const COL_PREFIX = 'poles_';   // keeps this app's data separate inside the same Firebase project
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+let firestoreDb = null;
+let currentPage = 'dashboard';
+let cache = { production:[], orders:[], materials:[], advances:[], gst_invoices:[], pole_rates:{}, mat_rates:{}, gst_profile:{}, opening:{} };
+let listeners = [];
+let salesTab = 'orders';
+let advTab = 'labour';
+let gstFromDate = '', gstToDate = '', gstInvoiceFilter = '';
+let _gstRowSeq = 0;
+
+// ── UTILS ────────────────────────────────────────────────────────────────────
+function today(){ return new Date().toISOString().slice(0,10); }
+function fmt(n){ n = Math.round(Number(n)||0); return n.toLocaleString('en-IN'); }
+function esc(s){ return String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(s){ if(!s) return '—'; const d=new Date(s+'T00:00:00'); return d.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,8); }
+function col(name){ return firestoreDb.collection(COL_PREFIX+name); }
+function modal(html){ document.getElementById('modal-container').innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()">${html}</div>`; }
+function closeModal(){ document.getElementById('modal-container').innerHTML=''; }
+function inRange(d,a,b){ return d>=a && d<=b; }
+function monthEnd(ym){ const [y,m]=ym.split('-').map(Number); const d=new Date(y,m,0); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function gstFinYear(dateStr){ const d=new Date(dateStr+'T00:00:00'); const y=d.getFullYear(), m=d.getMonth()+1; return m>=4 ? `${y}-${String(y+1).slice(-2)}` : `${y-1}-${String(y).slice(-2)}`; }
+function downloadCSV(filename, headers, rows){
+  const escCell = v => { const s=String(v??''); return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+  const lines = [headers.map(escCell).join(',')].concat(rows.map(r=>r.map(escCell).join(',')));
+  const blob = new Blob(['﻿'+lines.join('\r\n')], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; a.click();
+}
+function numToWords(n){
+  const ones=['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const tens=['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  function c(x){ if(x===0)return''; if(x<20)return ones[x]+' '; if(x<100)return tens[Math.floor(x/10)]+' '+(ones[x%10]?ones[x%10]+' ':''); if(x<1000)return ones[Math.floor(x/100)]+' Hundred '+c(x%100); if(x<100000)return c(Math.floor(x/1000))+'Thousand '+c(x%1000); if(x<10000000)return c(Math.floor(x/100000))+'Lakh '+c(x%100000); return c(Math.floor(x/10000000))+'Crore '+c(x%10000000); }
+  n=Math.round(Number(n)||0); if(n===0)return 'Zero Rupees Only'; return (c(n).trim())+' Rupees Only';
+}
+
+// ── FIREBASE / AUTH / DATA ───────────────────────────────────────────────────
+function saveConfig(){
+  const raw = document.getElementById('firebase-config').value.trim();
+  let cfg;
+  try { cfg = JSON.parse(raw.replace(/(\w+):/g,'"$1":').replace(/""(\w+)"":/g,'"$1":').replace(/'/g,'"')); }
+  catch(e){ try { cfg = JSON.parse(raw); } catch(e2){ showSetupErr('Cannot parse config: '+e2.message); return; } }
+  if(!cfg.projectId || !cfg.apiKey){ showSetupErr('Missing projectId or apiKey'); return; }
+  localStorage.setItem('bknpoles_firebase_config', JSON.stringify(cfg));
+  launchApp(cfg);
+}
+function showSetupErr(m){ document.getElementById('setup-error').textContent = m; }
+function launchApp(cfg){
+  try {
+    if(!firebase.apps.length) firebase.initializeApp(cfg);
+    firestoreDb = firebase.firestore();
+    firestoreDb.enablePersistence({synchronizeTabs:true}).catch(()=>{});
+    document.getElementById('setup-screen').style.display='none';
+    firebase.auth().onAuthStateChanged(user=>{
+      if(user){ document.getElementById('login-screen').style.display='none'; startApp(); }
+      else { document.getElementById('login-screen').style.display='flex'; document.getElementById('app').style.display='none'; }
+    });
+  } catch(e){ document.getElementById('setup-screen').style.display='flex'; showSetupErr(e.message); }
+}
+async function doLogin(){
+  const em=document.getElementById('login-email').value.trim(), pw=document.getElementById('login-pass').value;
+  try { await firebase.auth().signInWithEmailAndPassword(em,pw); }
+  catch(e){ document.getElementById('login-error').textContent = e.message; }
+}
+function doLogout(){ firebase.auth().signOut(); }
+
+async function startApp(){
+  document.getElementById('app').style.display='block';
+  const names = ['production','orders','materials','advances','gst_invoices'];
+  const metaDocs = ['pole_rates','mat_rates','gst_profile','opening'];
+  await Promise.all([
+    ...names.map(async n=>{ try{ const s=await col(n).get(); cache[n]=s.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ cache[n]=[]; } }),
+    ...metaDocs.map(async n=>{ try{ const d=await firestoreDb.collection(COL_PREFIX+'meta').doc(n).get(); cache[n]=d.exists?d.data():{}; }catch(e){ cache[n]={}; } }),
+  ]);
+  names.forEach(n=>{
+    const unsub = col(n).onSnapshot(s=>{ cache[n]=s.docs.map(d=>({id:d.id,...d.data()})); goto(currentPage,true); },()=>{});
+    listeners.push(unsub);
+  });
+  metaDocs.forEach(n=>{
+    const unsub = firestoreDb.collection(COL_PREFIX+'meta').doc(n).onSnapshot(d=>{ cache[n]=d.exists?d.data():{}; },()=>{});
+    listeners.push(unsub);
+  });
+  renderNav(); goto('dashboard');
+}
+function saveMeta(name){ return firestoreDb.collection(COL_PREFIX+'meta').doc(name).set(cache[name]||{}); }
+
+// ── NAV ──────────────────────────────────────────────────────────────────────
+function renderNav(){
+  document.getElementById('nav').innerHTML = PAGES.map(p=>`
+    <button class="nav-item ${currentPage===p.id?'active':''}" onclick="goto('${p.id}')"><i class="ti ${p.icon}"></i>${p.label}</button>`).join('');
+  const mob = [PAGES[0],PAGES[1],PAGES[2],PAGES[4],PAGES[5]];
+  document.getElementById('mobile-tabs').innerHTML = mob.map(p=>`
+    <button class="${currentPage===p.id?'active':''}" onclick="goto('${p.id}')"><i class="ti ${p.icon}"></i>${p.label}</button>`).join('')
+    + `<button class="${currentPage==='materials'||currentPage==='settings'?'active':''}" onclick="goto(currentPage==='materials'?'settings':'materials')"><i class="ti ti-dots"></i>More</button>`;
+}
+function goto(page, keepScroll){
+  currentPage = page;
+  renderNav();
+  document.getElementById('page-title').textContent = (PAGES.find(p=>p.id===page)||{}).label || '';
+  document.getElementById('topbar-action').innerHTML = '';
+  if(!keepScroll) window.scrollTo(0,0);
+  ({dashboard:renderDashboard, production:renderProduction, sales:renderSales,
+    materials:renderMaterials, advances:renderAdvances, gstbilling:renderGST, settings:renderSettings}[page]||renderDashboard)();
+}
+
+// ── STOCK HELPERS ────────────────────────────────────────────────────────────
+function poleStock(){
+  const stock = {};
+  POLE_TYPES.forEach(t=>{
+    const open = Number((cache.opening||{})[t])||0;
+    const made = cache.production.reduce((s,p)=>s+(Number(p.poles&&p.poles[t])||0),0);
+    const sold = cache.orders.filter(o=>o.status==='delivered').reduce((s,o)=>s+(Number(o.poles&&o.poles[t])||0),0);
+    stock[t] = open + made - sold;
+  });
+  return stock;
+}
+
+// ── DASHBOARD ────────────────────────────────────────────────────────────────
+function renderDashboard(){
+  const mon = today().slice(0,7);
+  const stock = poleStock();
+  const monProd = {}; POLE_TYPES.forEach(t=>monProd[t]=0);
+  cache.production.filter(p=>(p.date||'').startsWith(mon)).forEach(p=>POLE_TYPES.forEach(t=>monProd[t]+=(Number(p.poles&&p.poles[t])||0)));
+  const monOrders = cache.orders.filter(o=>(o.orderDate||'').startsWith(mon));
+  const monSalesTotal = monOrders.reduce((s,o)=>s+(Number(o.total)||0),0);
+  const receivable = cache.orders.reduce((s,o)=>s+Math.max(0,Number(o.balance)||0),0);
+  const pending = cache.orders.filter(o=>o.status!=='delivered');
+  const partnerTotals = PARTNERS.map(p=>({
+    name:p, total: cache.advances.filter(a=>a.type==='partner'&&a.person===p).reduce((s,a)=>s+(Number(a.amount)||0),0)
+  }));
+  const labourTotal = cache.advances.filter(a=>a.type==='labour').reduce((s,a)=>s+(Number(a.amount)||0),0);
+  document.getElementById('content').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1rem">
+      ${POLE_TYPES.map(t=>`<div class="stat-card"><div class="stat-label">${esc(t)} stock</div><div class="stat-value" style="color:${stock[t]<0?'var(--danger)':'var(--brand-mid)'}">${fmt(stock[t])}</div>
+        <div style="font-size:11px;color:var(--muted)">+${fmt(monProd[t])} made this month</div></div>`).join('')}
+      <div class="stat-card"><div class="stat-label">Receivable (balance due)</div><div class="stat-value" style="color:var(--warning)">₹${fmt(receivable)}</div></div>
+      <div class="stat-card"><div class="stat-label">Sales this month</div><div class="stat-value" style="color:var(--success)">₹${fmt(monSalesTotal)}</div><div style="font-size:11px;color:var(--muted)">${monOrders.length} orders</div></div>
+    </div>
+    <div class="card">
+      <div style="font-weight:700;font-size:14px;margin-bottom:10px">Partner &amp; labour advances (all time)</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+        ${partnerTotals.map(p=>`<div class="stat-card"><div class="stat-label">${esc(p.name)}</div><div class="stat-value" style="font-size:17px">₹${fmt(p.total)}</div></div>`).join('')}
+        <div class="stat-card"><div class="stat-label">Labour advances</div><div class="stat-value" style="font-size:17px">₹${fmt(labourTotal)}</div></div>
+      </div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:.9rem 1.25rem;font-weight:700;border-bottom:1px solid var(--border)">Pending deliveries (${pending.length})</div>
+      ${pending.length?`<div style="overflow-x:auto"><table>
+        <thead><tr><th>Customer</th><th>Poles</th><th style="text-align:right">Balance</th><th>Ordered</th></tr></thead>
+        <tbody>${pending.slice(0,8).map(o=>`<tr>
+          <td style="font-weight:600">${esc(o.customer)}</td>
+          <td style="font-size:12px">${POLE_TYPES.filter(t=>(o.poles||{})[t]>0).map(t=>`${t}×${o.poles[t]}`).join(', ')||'—'}</td>
+          <td style="text-align:right;color:var(--warning);font-weight:600">₹${fmt(o.balance)}</td>
+          <td style="font-size:12px;color:var(--muted)">${fmtDate(o.orderDate)}</td>
+        </tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-check"></i>Nothing pending</div>`}
+    </div>`;
+}
+
+// ── PRODUCTION ───────────────────────────────────────────────────────────────
+function renderProduction(){
+  document.getElementById('topbar-action').innerHTML = `<button class="btn-primary" onclick="openProdModal()">+ Log production</button>`;
+  const list = [...cache.production].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const mon = today().slice(0,7);
+  const monTot = {}; POLE_TYPES.forEach(t=>monTot[t]=0);
+  list.filter(p=>(p.date||'').startsWith(mon)).forEach(p=>POLE_TYPES.forEach(t=>monTot[t]+=(Number(p.poles&&p.poles[t])||0)));
+  document.getElementById('content').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:1rem">
+      ${POLE_TYPES.map(t=>`<div class="stat-card"><div class="stat-label">${esc(t)} — this month</div><div class="stat-value">${fmt(monTot[t])}</div></div>`).join('')}
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      ${list.length?`<div style="overflow-x:auto"><table>
+        <thead><tr><th>Date</th>${POLE_TYPES.map(t=>`<th style="text-align:center">${esc(t)}</th>`).join('')}<th>Notes</th><th></th></tr></thead>
+        <tbody>${list.map(p=>`<tr>
+          <td style="white-space:nowrap">${fmtDate(p.date)}</td>
+          ${POLE_TYPES.map(t=>`<td style="text-align:center;font-weight:${(p.poles||{})[t]>0?'700':'400'}">${(p.poles||{})[t]||'—'}</td>`).join('')}
+          <td style="font-size:12px;color:var(--muted)">${esc(p.notes||'')}</td>
+          <td style="text-align:right;white-space:nowrap">
+            <button class="btn-sm" onclick="openProdModal('${p.id}')">Edit</button>
+            <button class="btn-sm btn-danger" onclick="delProd('${p.id}')">Del</button>
+          </td>
+        </tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-tools"></i>No production logged yet</div>`}
+    </div>`;
+}
+function openProdModal(id){
+  const p = id ? cache.production.find(x=>x.id===id) : null;
+  modal(`<div class="modal">
+    <div class="modal-header"><h3>${p?'Edit':'Log'} production</h3><button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>Date</label><input type="date" id="pr-date" value="${p?p.date:today()}"></div>
+      <div class="form-row cols-3">
+        ${POLE_TYPES.map((t,i)=>`<div class="form-group"><label>${esc(t)}</label><input type="number" min="0" inputmode="numeric" id="pr-${i}" value="${(p&&p.poles&&p.poles[t])||''}" placeholder="0"></div>`).join('')}
+      </div>
+      <div class="form-group"><label>Notes (optional)</label><input type="text" id="pr-notes" value="${esc(p?.notes||'')}"></div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveProd('${id||''}')">Save</button>
+    </div>
+  </div>`);
+}
+async function saveProd(id){
+  const date = document.getElementById('pr-date').value;
+  if(!date){ alert('Select date'); return; }
+  const poles = {};
+  POLE_TYPES.forEach((t,i)=>{ const v=parseInt(document.getElementById('pr-'+i).value)||0; if(v>0) poles[t]=v; });
+  if(!Object.keys(poles).length){ alert('Enter at least one pole quantity'); return; }
+  await col('production').doc(id||uid()).set({ date, poles, notes: document.getElementById('pr-notes').value.trim() });
+  closeModal();
+}
+async function delProd(id){ if(confirm('Delete this production entry?')) await col('production').doc(id).delete(); }
+
+// ── SALES ────────────────────────────────────────────────────────────────────
+function renderSales(){
+  document.getElementById('topbar-action').innerHTML = `<button class="btn-primary" onclick="openOrderModal()">+ New sale</button>`;
+  document.getElementById('content').innerHTML = `
+    <div class="tab-bar">
+      <button class="tab ${salesTab==='orders'?'active':''}" onclick="salesTab='orders';renderSales()">Orders</button>
+      <button class="tab ${salesTab==='customers'?'active':''}" onclick="salesTab='customers';renderSales()">Customers</button>
+    </div>
+    <div id="sales-panel"></div>`;
+  if(salesTab==='orders') renderOrdersTab(); else renderCustomersTab();
+}
+function renderOrdersTab(){
+  const list = [...cache.orders].sort((a,b)=>(b.orderDate||'').localeCompare(a.orderDate||''));
+  document.getElementById('sales-panel').innerHTML = `
+    <div class="card" style="padding:0;overflow:hidden">
+      ${list.length?`<div style="overflow-x:auto"><table>
+        <thead><tr><th>Date</th><th>Customer</th><th>Poles</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Status</th><th></th></tr></thead>
+        <tbody>${list.map(o=>`<tr>
+          <td style="white-space:nowrap;font-size:12px">${fmtDate(o.orderDate)}</td>
+          <td style="font-weight:600">${esc(o.customer)}${o.phone?`<div style="font-size:11px;color:var(--muted)">${esc(o.phone)}</div>`:''}</td>
+          <td style="font-size:12px">${POLE_TYPES.filter(t=>(o.poles||{})[t]>0).map(t=>`${t}×${o.poles[t]}`).join(', ')||'—'}</td>
+          <td style="text-align:right">₹${fmt(o.total)}</td>
+          <td style="text-align:right;font-weight:700;color:${(o.balance||0)>0?'var(--warning)':'var(--success)'}">${(o.balance||0)>0?'₹'+fmt(o.balance):'✓ Paid'}</td>
+          <td>${o.status==='delivered'?'<span class="pill green">Delivered</span>':'<span class="pill amber">Pending</span>'}</td>
+          <td style="text-align:right;white-space:nowrap">
+            ${(o.balance||0)>0?`<button class="btn-sm" onclick="openPayModal('${o.id}')">Pay</button>`:''}
+            ${o.status!=='delivered'?`<button class="btn-sm" style="color:var(--success);border-color:var(--success)" onclick="markDelivered('${o.id}')">Deliver</button>`:''}
+            <button class="btn-sm" onclick="openOrderModal('${o.id}')">Edit</button>
+            <button class="btn-sm btn-danger" onclick="delOrder('${o.id}')">Del</button>
+          </td>
+        </tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-clipboard-list"></i>No sales yet — tap "+ New sale"</div>`}
+    </div>`;
+}
+function renderCustomersTab(){
+  const map = {};
+  cache.orders.forEach(o=>{
+    const key = (o.customer||'').trim().toLowerCase();
+    if(!key) return;
+    if(!map[key]) map[key] = { name:o.customer.trim(), phone:o.phone||'', orders:0, total:0, balance:0, poles:{} , last:''};
+    const c = map[key];
+    c.orders++; c.total += Number(o.total)||0; c.balance += Math.max(0,Number(o.balance)||0);
+    if((o.orderDate||'') > c.last) c.last = o.orderDate||'';
+    if(o.phone && !c.phone) c.phone = o.phone;
+    POLE_TYPES.forEach(t=>{ c.poles[t]=(c.poles[t]||0)+(Number(o.poles&&o.poles[t])||0); });
+  });
+  const custs = Object.values(map).sort((a,b)=>b.total-a.total);
+  document.getElementById('sales-panel').innerHTML = `
+    <div class="card" style="padding:0;overflow:hidden">
+      ${custs.length?`<div style="overflow-x:auto"><table>
+        <thead><tr><th>Customer</th><th>Orders</th>${POLE_TYPES.map(t=>`<th style="text-align:center">${esc(t)}</th>`).join('')}<th style="text-align:right">Total business</th><th style="text-align:right">Balance due</th><th>Last order</th></tr></thead>
+        <tbody>${custs.map((c,i)=>`<tr style="cursor:pointer" onclick="openCustomerDetail('${esc(c.name).replace(/'/g,"\\'")}')">
+          <td style="font-weight:700;color:var(--brand-mid)">${esc(c.name)}${c.phone?`<div style="font-size:11px;color:var(--muted);font-weight:400">${esc(c.phone)}</div>`:''}</td>
+          <td>${c.orders}</td>
+          ${POLE_TYPES.map(t=>`<td style="text-align:center;font-weight:${c.poles[t]>0?'700':'400'}">${c.poles[t]||'—'}</td>`).join('')}
+          <td style="text-align:right;font-weight:700">₹${fmt(c.total)}</td>
+          <td style="text-align:right;font-weight:700;color:${c.balance>0?'var(--warning)':'var(--success)'}">${c.balance>0?'₹'+fmt(c.balance):'✓ Clear'}</td>
+          <td style="font-size:12px;color:var(--muted)">${fmtDate(c.last)}</td>
+        </tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-users"></i>No customers yet</div>`}
+    </div>`;
+}
+function openCustomerDetail(name){
+  const orders = cache.orders.filter(o=>(o.customer||'').trim().toLowerCase()===name.trim().toLowerCase())
+    .sort((a,b)=>(b.orderDate||'').localeCompare(a.orderDate||''));
+  if(!orders.length) return;
+  const total = orders.reduce((s,o)=>s+(Number(o.total)||0),0);
+  const bal   = orders.reduce((s,o)=>s+Math.max(0,Number(o.balance)||0),0);
+  modal(`<div class="modal" style="width:640px">
+    <div class="modal-header"><h3>${esc(name)} — ${orders.length} orders · ₹${fmt(total)} total ${bal>0?'· <span style="color:var(--warning)">₹'+fmt(bal)+' due</span>':''}</h3>
+      <button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
+    <div class="modal-body" style="padding:0">
+      <div style="overflow-x:auto"><table>
+        <thead><tr><th>Date</th><th>Poles</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Status</th></tr></thead>
+        <tbody>${orders.map(o=>`<tr>
+          <td style="font-size:12px;white-space:nowrap">${fmtDate(o.orderDate)}</td>
+          <td style="font-size:12px">${POLE_TYPES.filter(t=>(o.poles||{})[t]>0).map(t=>`${t}×${o.poles[t]}`).join(', ')||'—'}</td>
+          <td style="text-align:right">₹${fmt(o.total)}</td>
+          <td style="text-align:right;color:${(o.balance||0)>0?'var(--warning)':'var(--success)'}">${(o.balance||0)>0?'₹'+fmt(o.balance):'✓'}</td>
+          <td>${o.status==='delivered'?'<span class="pill green">Delivered</span>':'<span class="pill amber">Pending</span>'}</td>
+        </tr>`).join('')}</tbody></table></div>
+    </div>
+  </div>`);
+}
+function openOrderModal(id){
+  const o = id ? cache.orders.find(x=>x.id===id) : null;
+  const rates = cache.pole_rates||{};
+  modal(`<div class="modal">
+    <div class="modal-header"><h3>${o?'Edit':'New'} sale</h3><button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Customer name *</label><input type="text" id="o-customer" value="${esc(o?.customer||'')}" list="cust-list"></div>
+        <div class="form-group"><label>Phone</label><input type="text" id="o-phone" value="${esc(o?.phone||'')}" inputmode="tel" placeholder="e.g. 9876543210"></div>
+      </div>
+      <datalist id="cust-list">${[...new Set(cache.orders.map(x=>(x.customer||'').trim()).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join('')}</datalist>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Order date</label><input type="date" id="o-date" value="${o?o.orderDate:today()}"></div>
+        <div class="form-group"><label>Place / site (optional)</label><input type="text" id="o-place" value="${esc(o?.place||'')}"></div>
+      </div>
+      <div class="form-row cols-3">
+        ${POLE_TYPES.map((t,i)=>`<div class="form-group"><label>${esc(t)} <span style="font-weight:400">(₹${fmt(rates[t]||0)}/pole)</span></label>
+          <input type="number" min="0" inputmode="numeric" id="o-p${i}" value="${(o&&o.poles&&o.poles[t])||''}" placeholder="0" oninput="orderAutoTotal()"></div>`).join('')}
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Total (₹) <button type="button" class="btn-sm" style="font-size:10px;padding:2px 7px" onclick="orderAutoTotal(true)">↻ Auto</button></label>
+          <input type="number" min="0" inputmode="numeric" id="o-total" value="${o?.total||''}" oninput="window._totLocked=true;orderBalance()"></div>
+        <div class="form-group"><label>Advance received (₹)</label><input type="number" min="0" inputmode="numeric" id="o-advance" value="${o?.advance||''}" oninput="orderBalance()"></div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;display:flex;justify-content:space-between;font-weight:700;margin-bottom:10px">
+        <span>Balance</span><span id="o-balance">₹${fmt((o?.total||0)-(o?.advance||0))}</span>
+      </div>
+      <div class="form-group"><label>Notes (optional)</label><input type="text" id="o-notes" value="${esc(o?.notes||'')}"></div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveOrder('${id||''}')">Save sale</button>
+    </div>
+  </div>`);
+  window._totLocked = !!o;
+}
+function orderAutoTotal(force){
+  if(force) window._totLocked = false;
+  if(window._totLocked) { orderBalance(); return; }
+  const rates = cache.pole_rates||{};
+  let sum = 0, hasRate = false;
+  POLE_TYPES.forEach((t,i)=>{ const q=parseInt(document.getElementById('o-p'+i)?.value)||0; const r=Number(rates[t])||0; if(q>0&&r>0){sum+=q*r;hasRate=true;} });
+  if(hasRate){ const el=document.getElementById('o-total'); if(el) el.value=sum; }
+  orderBalance();
+}
+function orderBalance(){
+  const t=Number(document.getElementById('o-total')?.value)||0, a=Number(document.getElementById('o-advance')?.value)||0;
+  const el=document.getElementById('o-balance'); if(el) el.textContent='₹'+fmt(t-a);
+}
+async function saveOrder(id){
+  const customer = document.getElementById('o-customer').value.trim();
+  if(!customer){ alert('Customer name required'); return; }
+  const poles = {};
+  POLE_TYPES.forEach((t,i)=>{ const v=parseInt(document.getElementById('o-p'+i).value)||0; if(v>0) poles[t]=v; });
+  if(!Object.keys(poles).length){ alert('Enter at least one pole quantity'); return; }
+  const total   = Number(document.getElementById('o-total').value)||0;
+  const advance = Number(document.getElementById('o-advance').value)||0;
+  const old = id ? cache.orders.find(x=>x.id===id) : null;
+  const paid = old ? (old.payments||[]).reduce((s,p)=>s+(Number(p.amount)||0),0) : 0;
+  const data = {
+    customer, phone: document.getElementById('o-phone').value.trim(),
+    orderDate: document.getElementById('o-date').value || today(),
+    place: document.getElementById('o-place').value.trim(),
+    poles, total, advance,
+    payments: old?(old.payments||[]):[],
+    balance: total - advance - paid,
+    status: old?(old.status||'pending'):'pending',
+    notes: document.getElementById('o-notes').value.trim(),
+  };
+  await col('orders').doc(id||uid()).set(data);
+  closeModal();
+}
+async function delOrder(id){ if(confirm('Delete this sale?')) await col('orders').doc(id).delete(); }
+async function markDelivered(id){
+  const o = cache.orders.find(x=>x.id===id); if(!o) return;
+  await col('orders').doc(id).update({ status:'delivered', deliveredDate: today() });
+}
+function openPayModal(id){
+  const o = cache.orders.find(x=>x.id===id); if(!o) return;
+  modal(`<div class="modal">
+    <div class="modal-header"><h3>Record payment — ${esc(o.customer)}</h3><button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
+    <div class="modal-body">
+      <div style="font-size:13px;margin-bottom:10px">Balance due: <strong style="color:var(--warning)">₹${fmt(o.balance)}</strong></div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Date</label><input type="date" id="pay-date" value="${today()}"></div>
+        <div class="form-group"><label>Amount (₹)</label><input type="number" min="0" inputmode="numeric" id="pay-amt" value="${o.balance||''}"></div>
+      </div>
+      <div class="form-group"><label>Note (optional)</label><input type="text" id="pay-note" placeholder="e.g. cash / UPI"></div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="savePayment('${id}')">Save payment</button>
+    </div>
+  </div>`);
+}
+async function savePayment(id){
+  const o = cache.orders.find(x=>x.id===id); if(!o) return;
+  const amt = Number(document.getElementById('pay-amt').value)||0;
+  const date= document.getElementById('pay-date').value;
+  if(amt<=0||!date){ alert('Date and amount required'); return; }
+  const payments = [...(o.payments||[]), { date, amount:amt, note:document.getElementById('pay-note').value.trim() }];
+  const paid = payments.reduce((s,p)=>s+(Number(p.amount)||0),0);
+  await col('orders').doc(id).update({ payments, balance:(Number(o.total)||0)-(Number(o.advance)||0)-paid });
+  closeModal();
+}
+
+// ── MATERIALS ────────────────────────────────────────────────────────────────
+function renderMaterials(){
+  document.getElementById('topbar-action').innerHTML = `<button class="btn-primary" onclick="openMatModal()">+ Add delivery</button>`;
+  const list = [...cache.materials].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const mon = today().slice(0,7);
+  const monTotals = MATERIALS.map(m=>{
+    const rows = list.filter(x=>x.material===m.id&&(x.date||'').startsWith(mon));
+    return { ...m, qty: rows.reduce((s,x)=>s+(Number(x.qty)||0),0), amt: rows.reduce((s,x)=>s+(Number(x.amount)||0),0) };
+  });
+  document.getElementById('content').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1rem">
+      ${monTotals.map(m=>`<div class="stat-card"><div class="stat-label">${esc(m.label)} — this month</div>
+        <div class="stat-value" style="font-size:16px">${fmt(m.qty)} <span style="font-size:11px;font-weight:500;color:var(--muted)">${m.unit}</span></div>
+        <div style="font-size:11px;color:var(--muted)">₹${fmt(m.amt)}</div></div>`).join('')}
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      ${list.length?`<div style="overflow-x:auto"><table>
+        <thead><tr><th>Date</th><th>Material</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th><th>Note</th><th></th></tr></thead>
+        <tbody>${list.map(x=>{
+          const m = MATERIALS.find(mm=>mm.id===x.material)||{label:x.material,unit:''};
+          return `<tr>
+            <td style="white-space:nowrap;font-size:12px">${fmtDate(x.date)}</td>
+            <td style="font-weight:600">${esc(m.label)}</td>
+            <td style="text-align:right">${fmt(x.qty)} ${m.unit}</td>
+            <td style="text-align:right">₹${fmt(x.rate)}</td>
+            <td style="text-align:right;font-weight:700">₹${fmt(x.amount)}</td>
+            <td style="font-size:12px;color:var(--muted)">${esc(x.note||'')}</td>
+            <td style="text-align:right;white-space:nowrap">
+              <button class="btn-sm" onclick="openMatModal('${x.id}')">Edit</button>
+              <button class="btn-sm btn-danger" onclick="delMat('${x.id}')">Del</button>
+            </td>
+          </tr>`;}).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-package"></i>No material deliveries yet</div>`}
+    </div>`;
+}
+function openMatModal(id){
+  const x = id ? cache.materials.find(m=>m.id===id) : null;
+  const rates = cache.mat_rates||{};
+  modal(`<div class="modal">
+    <div class="modal-header"><h3>${x?'Edit':'Add'} material delivery</h3><button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Date</label><input type="date" id="m-date" value="${x?x.date:today()}"></div>
+        <div class="form-group"><label>Material</label>
+          <select id="m-mat" onchange="matRateHint()">${MATERIALS.map(m=>`<option value="${m.id}" ${x&&x.material===m.id?'selected':''}>${esc(m.label)} (${m.unit})</option>`).join('')}</select></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Quantity</label><input type="number" min="0" step="0.01" inputmode="decimal" id="m-qty" value="${x?.qty||''}" oninput="matCalc()"></div>
+        <div class="form-group"><label id="m-rate-lbl">Rate per unit (₹)</label><input type="number" min="0" inputmode="numeric" id="m-rate" value="${x?x.rate:(rates[MATERIALS[0].id]||'')}" oninput="matCalc()"></div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;display:flex;justify-content:space-between;font-weight:700;margin-bottom:10px">
+        <span>Amount</span><span id="m-amt">₹${fmt(x?.amount||0)}</span>
+      </div>
+      <div class="form-group"><label>Note / supplier (optional)</label><input type="text" id="m-note" value="${esc(x?.note||'')}"></div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveMat('${id||''}')">Save</button>
+    </div>
+  </div>`);
+  matRateHint(!!x);
+}
+function matRateHint(skipRateFill){
+  const matId = document.getElementById('m-mat').value;
+  const m = MATERIALS.find(mm=>mm.id===matId);
+  document.getElementById('m-rate-lbl').textContent = `Rate per ${m.unit} (₹)`;
+  if(!skipRateFill){
+    const saved = Number((cache.mat_rates||{})[matId])||0;
+    if(saved>0) document.getElementById('m-rate').value = saved;
+  }
+  matCalc();
+}
+function matCalc(){
+  const q=Number(document.getElementById('m-qty')?.value)||0, r=Number(document.getElementById('m-rate')?.value)||0;
+  const el=document.getElementById('m-amt'); if(el) el.textContent='₹'+fmt(q*r);
+}
+async function saveMat(id){
+  const date = document.getElementById('m-date').value;
+  const matId= document.getElementById('m-mat').value;
+  const qty  = Number(document.getElementById('m-qty').value)||0;
+  const rate = Number(document.getElementById('m-rate').value)||0;
+  if(!date||qty<=0){ alert('Date and quantity required'); return; }
+  await col('materials').doc(id||uid()).set({ date, material:matId, qty, rate, amount:qty*rate, note:document.getElementById('m-note').value.trim() });
+  cache.mat_rates = cache.mat_rates||{}; if(rate>0){ cache.mat_rates[matId]=rate; saveMeta('mat_rates'); }
+  closeModal();
+}
+async function delMat(id){ if(confirm('Delete this delivery?')) await col('materials').doc(id).delete(); }
+
+// ── ADVANCES (labour + partners) ─────────────────────────────────────────────
+function renderAdvances(){
+  document.getElementById('topbar-action').innerHTML = `<button class="btn-primary" onclick="openAdvModal()">+ Record advance</button>`;
+  document.getElementById('content').innerHTML = `
+    <div class="tab-bar">
+      <button class="tab ${advTab==='labour'?'active':''}" onclick="advTab='labour';renderAdvances()">Labour</button>
+      <button class="tab ${advTab==='partner'?'active':''}" onclick="advTab='partner';renderAdvances()">Partners</button>
+    </div>
+    <div id="adv-panel"></div>`;
+  const type = advTab;
+  const list = cache.advances.filter(a=>a.type===type).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const byPerson = {};
+  list.forEach(a=>{ const k=(a.person||'').trim(); byPerson[k]=(byPerson[k]||0)+(Number(a.amount)||0); });
+  const persons = type==='partner' ? PARTNERS : Object.keys(byPerson).sort();
+  document.getElementById('adv-panel').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1rem">
+      ${persons.map(p=>`<div class="stat-card"><div class="stat-label">${esc(p||'—')}</div>
+        <div class="stat-value" style="font-size:17px;color:${(byPerson[p]||0)>0?'var(--warning)':'var(--success)'}">₹${fmt(byPerson[p]||0)}</div>
+        <div style="font-size:11px;color:var(--muted)">net taken</div></div>`).join('') || ''}
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Tip: record a repayment as a <strong>negative amount</strong> (e.g. -5000) — totals adjust automatically.</div>
+    <div class="card" style="padding:0;overflow:hidden">
+      ${list.length?`<div style="overflow-x:auto"><table>
+        <thead><tr><th>Date</th><th>${type==='partner'?'Partner':'Labour name'}</th><th style="text-align:right">Amount</th><th>Note</th><th></th></tr></thead>
+        <tbody>${list.map(a=>`<tr>
+          <td style="white-space:nowrap;font-size:12px">${fmtDate(a.date)}</td>
+          <td style="font-weight:600">${esc(a.person)}</td>
+          <td style="text-align:right;font-weight:700;color:${(a.amount||0)<0?'var(--success)':'var(--text)'}">${(a.amount||0)<0?'−₹'+fmt(-a.amount)+' (repaid)':'₹'+fmt(a.amount)}</td>
+          <td style="font-size:12px;color:var(--muted)">${esc(a.note||'')}</td>
+          <td style="text-align:right"><button class="btn-sm btn-danger" onclick="delAdv('${a.id}')">Del</button></td>
+        </tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-wallet"></i>No ${type} advances yet</div>`}
+    </div>`;
+}
+function openAdvModal(){
+  const type = advTab;
+  const labourNames = [...new Set(cache.advances.filter(a=>a.type==='labour').map(a=>(a.person||'').trim()).filter(Boolean))];
+  modal(`<div class="modal">
+    <div class="modal-header"><h3>Record ${type==='partner'?'partner':'labour'} advance</h3><button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-group"><label>${type==='partner'?'Partner':'Labour name'}</label>
+        ${type==='partner'
+          ? `<select id="a-person">${PARTNERS.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('')}</select>`
+          : `<input type="text" id="a-person" list="labour-list" placeholder="Name"><datalist id="labour-list">${labourNames.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>`}
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Date</label><input type="date" id="a-date" value="${today()}"></div>
+        <div class="form-group"><label>Amount (₹) <span style="font-weight:400">(negative = repaid)</span></label><input type="number" inputmode="numeric" id="a-amt" placeholder="e.g. 2000 or -2000"></div>
+      </div>
+      <div class="form-group"><label>Note (optional)</label><input type="text" id="a-note"></div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveAdv('${type}')">Save</button>
+    </div>
+  </div>`);
+}
+async function saveAdv(type){
+  const person = document.getElementById('a-person').value.trim();
+  const amt    = Number(document.getElementById('a-amt').value)||0;
+  const date   = document.getElementById('a-date').value;
+  if(!person||!amt||!date){ alert('Name, date and amount required'); return; }
+  await col('advances').doc(uid()).set({ type, person, date, amount:amt, note:document.getElementById('a-note').value.trim() });
+  closeModal();
+}
+async function delAdv(id){ if(confirm('Delete this entry?')) await col('advances').doc(id).delete(); }
+
+// ── GST BILLING ──────────────────────────────────────────────────────────────
+function nextInvoiceNo(year){
+  const all = cache.gst_invoices||[];
+  const invs = all.filter(i=>i.invoiceNo&&i.invoiceNo.includes('/'+year+'/'));
+  if(!invs.length) return `BEP/${year}/${String(all.length+1).padStart(3,'0')}`;
+  const nums = invs.map(i=>{ const p=i.invoiceNo.split('/'); return parseInt(p[p.length-1])||0; });
+  return `BEP/${year}/${String(Math.max(...nums)+1).padStart(3,'0')}`;
+}
+function renderGST(){
+  document.getElementById('topbar-action').innerHTML = `<button class="btn-primary" onclick="openGSTModal()">+ New invoice</button>`;
+  const year     = gstFinYear(today());
+  const invoices = [...(cache.gst_invoices||[])].sort((a,b)=>(a.invoiceDate||'').localeCompare(b.invoiceDate||''));
+  const allYears = [...new Set(invoices.map(i=>gstFinYear(i.invoiceDate)).filter(Boolean))];
+  if(!gstInvoiceFilter) gstInvoiceFilter = allYears[0]||year;
+  const yearFiltered = invoices.filter(i=>gstFinYear(i.invoiceDate)===gstInvoiceFilter);
+  const filtered = yearFiltered.filter(i=>{
+    if(gstFromDate && i.invoiceDate < gstFromDate) return false;
+    if(gstToDate   && i.invoiceDate > gstToDate)   return false;
+    return true;
+  });
+  const monthCounts = {};
+  yearFiltered.forEach(i=>{ const ym=(i.invoiceDate||'').slice(0,7); if(ym) monthCounts[ym]=(monthCounts[ym]||0)+1; });
+  const months = Object.keys(monthCounts).sort().reverse();
+  const selMonth = (gstFromDate&&gstToDate&&gstFromDate.slice(0,7)===gstToDate.slice(0,7)&&gstFromDate.endsWith('-01')&&gstToDate===monthEnd(gstFromDate.slice(0,7)))?gstFromDate.slice(0,7):'';
+  const monthOpts = `<option value="">All months</option>`+months.map(ym=>{
+    const [y,m]=ym.split('-').map(Number);
+    return `<option value="${ym}" ${selMonth===ym?'selected':''}>${new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'})} (${monthCounts[ym]})</option>`;}).join('');
+  const yearOpts = [...new Set([year,...allYears])].map(y=>`<option value="${y}" ${gstInvoiceFilter===y?'selected':''}>${y}</option>`).join('');
+  const tot = k => filtered.reduce((s,i)=>s+(Number(i[k])||0),0);
+  document.getElementById('content').innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+      <select style="width:auto;font-size:13px;padding:5px 10px" onchange="gstInvoiceFilter=this.value;gstFromDate='';gstToDate='';renderGST()">${yearOpts}</select>
+      <select style="width:auto;font-size:13px;padding:5px 10px;font-weight:600" onchange="gstSelectMonth(this.value)">${monthOpts}</select>
+      ${gstFromDate||gstToDate?`<button class="btn-sm" onclick="gstFromDate='';gstToDate='';renderGST()">✕ Clear</button>`:''}
+      <div style="margin-left:auto;display:flex;gap:6px">
+        ${filtered.length?`<button class="btn-sm btn-excel" onclick="exportGSTForAuditor()"><i class="ti ti-table-export"></i> Auditor CSV</button>`:''}
+      </div>
+    </div>
+    ${filtered.length?`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:1rem">
+      <div class="stat-card"><div class="stat-label">Taxable</div><div class="stat-value" style="font-size:17px">₹${fmt(tot('taxableTotal'))}</div></div>
+      <div class="stat-card"><div class="stat-label">GST</div><div class="stat-value" style="font-size:17px">₹${fmt(tot('gstAmount'))}</div></div>
+      <div class="stat-card"><div class="stat-label">Grand Total</div><div class="stat-value" style="font-size:17px">₹${fmt(tot('grandTotal'))}</div></div>
+    </div>`:''}
+    <div class="card" style="padding:0;overflow:hidden">
+      ${filtered.length?`<div style="overflow-x:auto"><table>
+        <thead><tr><th>Invoice No.</th><th>Date</th><th>Customer</th><th style="text-align:right">Taxable</th><th style="text-align:right">GST</th><th style="text-align:right">Total</th><th></th></tr></thead>
+        <tbody>${[...filtered].reverse().map(inv=>`<tr>
+          <td style="font-weight:700;color:var(--brand-mid)">${esc(inv.invoiceNo)}</td>
+          <td style="font-size:12px;white-space:nowrap">${fmtDate(inv.invoiceDate)}</td>
+          <td>${esc(inv.customer)}</td>
+          <td style="text-align:right">₹${fmt(inv.taxableTotal)}</td>
+          <td style="text-align:right">₹${fmt(inv.gstAmount)}</td>
+          <td style="text-align:right;font-weight:700">₹${fmt(inv.grandTotal)}</td>
+          <td style="text-align:right;white-space:nowrap">
+            <button class="btn-sm" onclick="printGSTInvoice('${inv.id}')" title="Print"><i class="ti ti-printer"></i></button>
+            <button class="btn-sm" onclick="openGSTModal('${inv.id}')">Edit</button>
+            <button class="btn-sm btn-danger" onclick="delGSTInvoice('${inv.id}')">Del</button>
+          </td>
+        </tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-file-invoice"></i>No invoices in this range</div>`}
+    </div>`;
+}
+function gstSelectMonth(ym){
+  if(!ym){ gstFromDate=''; gstToDate=''; } else { gstFromDate=ym+'-01'; gstToDate=monthEnd(ym); }
+  renderGST();
+}
+function exportGSTForAuditor(){
+  const invoices = [...(cache.gst_invoices||[])].sort((a,b)=>(a.invoiceDate||'').localeCompare(b.invoiceDate||''));
+  const filtered = invoices.filter(i=>{
+    if(gstFinYear(i.invoiceDate)!==gstInvoiceFilter) return false;
+    if(gstFromDate && i.invoiceDate < gstFromDate) return false;
+    if(gstToDate   && i.invoiceDate > gstToDate)   return false;
+    return true;
+  });
+  if(!filtered.length){ alert('No invoices'); return; }
+  const headers = ['Invoice No','Date','Customer','Customer GSTIN','Supply Type','GST Rate %','Taxable Value','CGST','SGST','IGST','Total GST','Grand Total'];
+  const rows = filtered.map(i=>[i.invoiceNo,i.invoiceDate,i.customer,i.customerGSTIN||'',i.supplyType==='intrastate'?'Intra-state':'Inter-state',i.gstRate||0,Number(i.taxableTotal)||0,Number(i.cgst)||0,Number(i.sgst)||0,Number(i.igst)||0,Number(i.gstAmount)||0,Number(i.grandTotal)||0]);
+  rows.push(['TOTAL','','','','','',filtered.reduce((s,i)=>s+(Number(i.taxableTotal)||0),0),filtered.reduce((s,i)=>s+(Number(i.cgst)||0),0),filtered.reduce((s,i)=>s+(Number(i.sgst)||0),0),filtered.reduce((s,i)=>s+(Number(i.igst)||0),0),filtered.reduce((s,i)=>s+(Number(i.gstAmount)||0),0),filtered.reduce((s,i)=>s+(Number(i.grandTotal)||0),0)]);
+  const label = (gstFromDate&&gstToDate&&gstFromDate.slice(0,7)===gstToDate.slice(0,7))?gstFromDate.slice(0,7):'FY'+gstInvoiceFilter;
+  downloadCSV('poles_gst_'+label+'.csv', headers, rows);
+}
+function gstAddRow(desc, qty, rate){
+  _gstRowSeq++;
+  const i=_gstRowSeq;
+  if(!document.getElementById('pole-item-options')){
+    const dl=document.createElement('datalist'); dl.id='pole-item-options';
+    dl.innerHTML=POLE_TYPES.map(t=>`<option value="${esc(t)} PSC Pole">`).join('');
+    document.body.appendChild(dl);
+  }
+  const tr=document.createElement('tr'); tr.id='gst-row-'+i;
+  tr.innerHTML=`
+    <td style="padding:4px 6px"><input type="text" id="gi-desc-${i}" list="pole-item-options" value="${esc(desc||'')}" placeholder="e.g. 8 Mtr PSC Pole" style="font-size:12px;padding:4px 6px;min-width:130px" onchange="gstRecalcRow(${i})"></td>
+    <td style="padding:4px 6px"><input type="number" id="gi-qty-${i}" value="${qty||''}" min="1" inputmode="numeric" placeholder="0" style="width:64px;font-size:12px;padding:4px 5px" oninput="gstRecalcRow(${i})"></td>
+    <td style="padding:4px 6px"><input type="number" id="gi-rate-${i}" value="${rate||''}" min="0" inputmode="numeric" placeholder="0" style="width:90px;font-size:12px;padding:4px 5px" oninput="gstRecalcRow(${i})"></td>
+    <td style="padding:4px 8px;text-align:right;font-weight:600;white-space:nowrap" id="gi-amt-${i}">₹${fmt((qty||0)*(rate||0))}</td>
+    <td style="padding:4px 4px;text-align:center"><button type="button" onclick="document.getElementById('gst-row-${i}').remove();gstRecalcAll()" style="border:none;background:none;color:var(--muted);font-size:18px">×</button></td>`;
+  document.getElementById('gst-items-tbody').appendChild(tr);
+  gstRecalcAll();
+}
+function gstRecalcRow(i){
+  const q=Number(document.getElementById('gi-qty-'+i)?.value)||0, r=Number(document.getElementById('gi-rate-'+i)?.value)||0;
+  const el=document.getElementById('gi-amt-'+i); if(el) el.textContent='₹'+fmt(q*r);
+  gstRecalcAll();
+}
+function gstRecalcAll(){
+  let taxable=0;
+  document.querySelectorAll('#gst-items-tbody tr[id^="gst-row-"]').forEach(row=>{
+    const i=row.id.replace('gst-row-','');
+    taxable += (Number(document.getElementById('gi-qty-'+i)?.value)||0)*(Number(document.getElementById('gi-rate-'+i)?.value)||0);
+  });
+  const rate=Number(document.getElementById('gi-gstrate')?.value)||0;
+  const gst=taxable*rate/100;
+  const g1=document.getElementById('gi-taxable'), g2=document.getElementById('gi-gst'), g3=document.getElementById('gi-grand');
+  if(g1) g1.textContent='₹'+fmt(taxable);
+  if(g2) g2.textContent='₹'+fmt(gst);
+  if(g3) g3.textContent='₹'+fmt(taxable+gst);
+}
+function openGSTModal(id){
+  const inv  = id ? (cache.gst_invoices||[]).find(i=>i.id===id) : null;
+  const year = gstFinYear(inv?inv.invoiceDate:today());
+  const invNo= inv ? inv.invoiceNo : nextInvoiceNo(year);
+  _gstRowSeq = 0;
+  modal(`<div class="modal" style="width:680px">
+    <div class="modal-header"><h3>${inv?'Edit':'New'} GST invoice</h3><button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Invoice No.</label><input type="text" id="gi-no" value="${esc(invNo)}"></div>
+        <div class="form-group"><label>Date</label><input type="date" id="gi-date" value="${inv?inv.invoiceDate:today()}"></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Customer *</label><input type="text" id="gi-customer" value="${esc(inv?.customer||'')}"></div>
+        <div class="form-group"><label>Customer GSTIN</label><input type="text" id="gi-cgstin" value="${esc(inv?.customerGSTIN||'')}" style="text-transform:uppercase"></div>
+      </div>
+      <div class="form-group"><label>Customer address</label><input type="text" id="gi-caddr" value="${esc(inv?.customerAddress||'')}"></div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Supply type</label>
+          <select id="gi-supply"><option value="intrastate" ${(!inv||inv.supplyType==='intrastate')?'selected':''}>Intra-state (CGST+SGST)</option><option value="interstate" ${inv&&inv.supplyType==='interstate'?'selected':''}>Inter-state (IGST)</option></select></div>
+        <div class="form-group"><label>GST rate %</label><input type="number" id="gi-gstrate" value="${inv?inv.gstRate:18}" min="0" oninput="gstRecalcAll()"></div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:8px;overflow-x:auto;margin-bottom:10px">
+        <table style="min-width:430px">
+          <thead><tr><th>Item</th><th>Qty</th><th>Rate (₹)</th><th style="text-align:right">Amount</th><th></th></tr></thead>
+          <tbody id="gst-items-tbody"></tbody>
+        </table>
+        <button type="button" onclick="gstAddRow()" style="margin:8px;font-size:12px;padding:5px 12px;border:1px dashed var(--brand-mid);background:var(--brand-light);color:var(--brand-mid);border-radius:6px">+ Add item</button>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13.5px">
+        <div style="display:flex;justify-content:space-between"><span>Taxable</span><strong id="gi-taxable">₹0</strong></div>
+        <div style="display:flex;justify-content:space-between"><span>GST</span><strong id="gi-gst">₹0</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:15px;margin-top:4px"><span style="font-weight:700">Grand Total</span><strong id="gi-grand" style="color:var(--brand-mid)">₹0</strong></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveGSTInvoice('${id||''}')">Save invoice</button>
+    </div>
+  </div>`);
+  const items = inv ? (inv.items||[]) : [];
+  if(items.length) items.forEach(it=>gstAddRow(it.desc,it.qty,it.rate)); else gstAddRow();
+}
+async function saveGSTInvoice(id){
+  const invoiceNo = document.getElementById('gi-no').value.trim();
+  const invoiceDate = document.getElementById('gi-date').value;
+  const customer = document.getElementById('gi-customer').value.trim();
+  if(!invoiceNo||!invoiceDate||!customer){ alert('Invoice no, date and customer required'); return; }
+  const items=[];
+  document.querySelectorAll('#gst-items-tbody tr[id^="gst-row-"]').forEach(row=>{
+    const i=row.id.replace('gst-row-','');
+    const desc=document.getElementById('gi-desc-'+i)?.value.trim();
+    const qty=Number(document.getElementById('gi-qty-'+i)?.value)||0;
+    const rate=Number(document.getElementById('gi-rate-'+i)?.value)||0;
+    if(desc&&qty>0) items.push({desc,qty,rate,taxableValue:qty*rate,hsn:'6810'});
+  });
+  if(!items.length){ alert('Add at least one item'); return; }
+  const taxableTotal = items.reduce((s,x)=>s+x.taxableValue,0);
+  const gstRate = Number(document.getElementById('gi-gstrate').value)||0;
+  const supplyType = document.getElementById('gi-supply').value;
+  const gstAmount = taxableTotal*gstRate/100;
+  const intra = supplyType==='intrastate';
+  const data = {
+    invoiceNo, invoiceDate, customer,
+    customerAddress: document.getElementById('gi-caddr').value.trim(),
+    customerGSTIN: document.getElementById('gi-cgstin').value.trim().toUpperCase(),
+    supplyType, gstRate, items, taxableTotal,
+    cgst: intra?gstAmount/2:0, sgst: intra?gstAmount/2:0, igst: intra?0:gstAmount,
+    gstAmount, grandTotal: taxableTotal+gstAmount,
+  };
+  await col('gst_invoices').doc(id||uid()).set(data);
+  closeModal();
+}
+async function delGSTInvoice(id){ if(confirm('Delete this invoice?')) await col('gst_invoices').doc(id).delete(); }
+function printGSTInvoice(id){
+  const inv=(cache.gst_invoices||[]).find(i=>i.id===id); if(!inv) return;
+  const p=cache.gst_profile||{};
+  const intra=inv.supplyType==='intrastate';
+  const rows=(inv.items||[]).map((item,idx)=>`
+    <tr><td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${idx+1}</td>
+    <td style="padding:7px 10px;border:1px solid #cbd5e1">${esc(item.desc)}</td>
+    <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${esc(item.hsn||'6810')}</td>
+    <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${item.qty}</td>
+    <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:right">₹${fmt(item.rate)}</td>
+    <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:right">₹${fmt(item.taxableValue)}</td></tr>`).join('');
+  const taxRows = intra
+    ? `<tr><td colspan="5" style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">CGST @ ${inv.gstRate/2}%</td><td style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">₹${fmt(inv.cgst)}</td></tr>
+       <tr><td colspan="5" style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">SGST @ ${inv.gstRate/2}%</td><td style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">₹${fmt(inv.sgst)}</td></tr>`
+    : `<tr><td colspan="5" style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">IGST @ ${inv.gstRate}%</td><td style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">₹${fmt(inv.igst)}</td></tr>`;
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Tax Invoice — ${esc(inv.invoiceNo)}</title>
+  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:13px;color:#0f172a;padding:20px}.wrap{max-width:800px;margin:0 auto;border:2px solid #7c2d12;padding:26px}@media print{body{padding:0}}</style></head><body>
+  <div class="wrap">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:14px;border-bottom:2px solid #e2e8f0;margin-bottom:14px">
+      <div>
+        <div style="font-size:19px;font-weight:700;color:#7c2d12">BKN ELECTRIC POLES</div>
+        <div style="font-size:11px;color:#475569;margin-top:2px">${((p.address||'Kollapurdamma Temple Road, Durga Nagar, Kunigal — 572130')+'').split('\n').map(l=>esc(l.trim())).filter(Boolean).join('<br>')}</div>
+        ${p.phone?`<div style="font-size:11px;color:#475569">Ph: ${esc(p.phone)}</div>`:''}
+        ${p.gstin?`<div style="font-size:11px;margin-top:3px"><strong>GSTIN:</strong> ${esc(p.gstin)}</div>`:''}
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:19px;font-weight:700;color:#7c2d12">TAX INVOICE</div>
+        <div style="font-size:12px;margin-top:6px"><strong>Invoice No.:</strong> ${esc(inv.invoiceNo)}</div>
+        <div style="font-size:12px"><strong>Date:</strong> ${fmtDate(inv.invoiceDate)}</div>
+        <div style="margin-top:5px;display:inline-block;background:#7c2d12;color:#fff;padding:3px 9px;border-radius:4px;font-size:11px;font-weight:700">${intra?'CGST + SGST':'IGST'}</div>
+      </div>
+    </div>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:9px 11px;margin-bottom:12px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:3px">Bill To</div>
+      <div style="font-size:14px;font-weight:700">${esc(inv.customer)}</div>
+      ${inv.customerAddress?`<div style="font-size:11px;color:#475569">${esc(inv.customerAddress)}</div>`:''}
+      ${inv.customerGSTIN?`<div style="font-size:11px"><strong>GSTIN:</strong> ${esc(inv.customerGSTIN)}</div>`:''}
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:#7c2d12;color:#fff">
+        <th style="padding:7px 10px;width:30px">#</th><th style="padding:7px 10px;text-align:left">Description</th>
+        <th style="padding:7px 10px;width:60px">HSN</th><th style="padding:7px 10px;width:50px">Qty</th>
+        <th style="padding:7px 10px;width:85px;text-align:right">Rate</th><th style="padding:7px 10px;width:95px;text-align:right">Amount</th>
+      </tr></thead>
+      <tbody>${rows}
+        <tr style="background:#f8fafc"><td colspan="5" style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;font-weight:600">Taxable Value</td><td style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;font-weight:600">₹${fmt(inv.taxableTotal)}</td></tr>
+        ${taxRows}
+        <tr style="background:#fff7ed"><td colspan="5" style="padding:8px 10px;border:2px solid #7c2d12;text-align:right;font-weight:700;font-size:14px">Grand Total</td><td style="padding:8px 10px;border:2px solid #7c2d12;text-align:right;font-weight:700;font-size:14px;color:#7c2d12">₹${fmt(inv.grandTotal)}</td></tr>
+      </tbody>
+    </table>
+    <div style="font-size:11px;margin-top:8px;color:#475569"><strong>Amount in words:</strong> ${numToWords(inv.grandTotal)}</div>
+    ${p.bankDetails?`<div style="font-size:11px;margin-top:10px;padding-top:8px;border-top:1px solid #e2e8f0"><strong>Bank:</strong> ${esc(p.bankDetails)}</div>`:''}
+    <div style="display:flex;justify-content:space-between;margin-top:34px;font-size:11px">
+      <div>Customer signature</div>
+      <div style="text-align:center">For <strong>BKN ELECTRIC POLES</strong><br><br><br>Authorised signatory</div>
+    </div>
+  </div>
+  <script>window.print();<\/script></body></html>`;
+  const w=window.open('','_blank'); w.document.write(html); w.document.close();
+}
+
+// ── SETTINGS ─────────────────────────────────────────────────────────────────
+function renderSettings(){
+  const p = cache.gst_profile||{};
+  const rates = cache.pole_rates||{};
+  const opening = cache.opening||{};
+  document.getElementById('content').innerHTML = `
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:10px">Pole sale rates <span style="font-size:12px;font-weight:400;color:var(--muted)">used to auto-calculate sale totals</span></div>
+      <div class="form-row cols-3">
+        ${POLE_TYPES.map((t,i)=>`<div class="form-group"><label>${esc(t)} (₹/pole)</label><input type="number" min="0" inputmode="numeric" id="rate-${i}" value="${rates[t]||''}" onchange="savePoleRates()"></div>`).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:10px">Opening stock <span style="font-size:12px;font-weight:400;color:var(--muted)">poles already in yard when you started using this app</span></div>
+      <div class="form-row cols-3">
+        ${POLE_TYPES.map((t,i)=>`<div class="form-group"><label>${esc(t)}</label><input type="number" min="0" inputmode="numeric" id="open-${i}" value="${opening[t]||''}" onchange="saveOpening()"></div>`).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:10px">GST Business Profile <span style="font-size:12px;font-weight:400;color:var(--muted)">printed on invoices</span></div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>GSTIN</label><input type="text" id="prof-gstin" value="${esc(p.gstin||'')}" style="text-transform:uppercase"></div>
+        <div class="form-group"><label>Phone</label><input type="text" id="prof-phone" value="${esc(p.phone||'')}"></div>
+      </div>
+      <div class="form-group"><label>Address</label><textarea id="prof-address" rows="2">${esc(p.address||'Kollapurdamma Temple Road, Durga Nagar, Kunigal — 572130')}</textarea></div>
+      <div class="form-group"><label>Bank details (optional)</label><input type="text" id="prof-bank" value="${esc(p.bankDetails||'')}"></div>
+      <button class="btn-primary" onclick="saveProfile()">Save profile</button>
+    </div>
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:10px">Account</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Signed in as ${esc((firebase.auth().currentUser||{}).email||'—')} · Data stored in collections prefixed <code>poles_</code></div>
+      <button class="btn-sm btn-danger" onclick="doLogout()">Sign out</button>
+    </div>`;
+}
+function savePoleRates(){
+  const rates={};
+  POLE_TYPES.forEach((t,i)=>{ const v=Number(document.getElementById('rate-'+i).value)||0; if(v>0) rates[t]=v; });
+  cache.pole_rates=rates; saveMeta('pole_rates');
+}
+function saveOpening(){
+  const o={};
+  POLE_TYPES.forEach((t,i)=>{ const v=Number(document.getElementById('open-'+i).value)||0; if(v>0) o[t]=v; });
+  cache.opening=o; saveMeta('opening');
+}
+function saveProfile(){
+  cache.gst_profile = {
+    gstin: document.getElementById('prof-gstin').value.trim().toUpperCase(),
+    phone: document.getElementById('prof-phone').value.trim(),
+    address: document.getElementById('prof-address').value.trim(),
+    bankDetails: document.getElementById('prof-bank').value.trim(),
+  };
+  saveMeta('gst_profile').then(()=>alert('Profile saved'));
+}
+</script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script>
+// Boot: reuse pipes-app config if present on this device, else own key, else setup screen
+const savedCfg = localStorage.getItem('bknpoles_firebase_config') || localStorage.getItem('hpf_firebase_config');
+if(savedCfg){
+  try { launchApp(JSON.parse(savedCfg)); localStorage.setItem('bknpoles_firebase_config', savedCfg); }
+  catch(e){ document.getElementById('setup-screen').style.display='flex'; }
+} else {
+  document.getElementById('setup-screen').style.display='flex';
+}
+</script>
+</body>
+</html>
