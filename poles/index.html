@@ -636,12 +636,21 @@ function shareSale(orderId){
   const p = cache.gst_profile||{};
   const factoryPhone = p.phone ? p.phone.split(/[\n,]/).map(l=>l.trim()).filter(Boolean).join(' / ') : '';
   const poleList = POLE_TYPES.filter(t=>(o.poles||{})[t]>0).map(t=>`${t} × ${o.poles[t]}`).join(', ');
+  const advance  = Number(o.advance)||0;
+  const laterPaid= (o.payments||[]).reduce((s,p)=>s+(Number(p.amount)||0),0);
+  const totalPaid= advance + laterPaid;
+  const balance  = Number(o.balance)||0;
+  // Show a payment breakdown: advance, each later payment (with date), total paid, balance
+  const payLines = [ `Total: ₹${fmt(o.total)}`, `Advance paid: ₹${fmt(advance)}` ];
+  (o.payments||[]).forEach(p=>{ payLines.push(`Paid ${p.date?'('+fmtDate(p.date)+')':''}: ₹${fmt(p.amount)}${p.note?' — '+p.note:''}`); });
+  if(laterPaid>0) payLines.push(`Total paid: ₹${fmt(totalPaid)}`);
+  payLines.push(`*Balance: ₹${fmt(balance)}*`);
   const text = [
     `*BKN ELECTRIC POLES, Kunigal*${factoryPhone?' — Ph: '+factoryPhone:''}`,
     ``,
     `Customer: ${o.customer}${o.phone?' ('+o.phone+')':''}`,
     `Poles: ${poleList||'—'}`,
-    `Total: ₹${fmt(o.total)} | Advance: ₹${fmt(o.advance)} | Balance: ₹${fmt(o.balance)}`,
+    ...payLines,
     `Date: ${fmtDate(o.orderDate)}`,
     o.status==='delivered' ? `Status: Delivered ✓` : false,
     o.notes ? `Note: ${o.notes}` : false,
