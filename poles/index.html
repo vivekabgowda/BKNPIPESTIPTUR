@@ -488,7 +488,7 @@ function renderOrdersTab(){
           <td style="font-weight:600">${esc(o.customer)}${o.phone?`<div style="font-size:11px;color:var(--muted)">${esc(o.phone)}</div>`:''}</td>
           <td style="font-size:12px">${POLE_TYPES.filter(t=>(o.poles||{})[t]>0).map(t=>`${t}×${o.poles[t]}`).join(', ')||'—'}</td>
           <td style="text-align:right">₹${fmt(o.total)}</td>
-          <td style="text-align:right;font-weight:700;color:${(o.balance||0)>0?'var(--warning)':'var(--success)'}">${(o.balance||0)>0?'₹'+fmt(o.balance):'✓ Paid'}</td>
+          <td style="text-align:right;font-weight:700;color:${(o.balance||0)>0?'var(--warning)':(o.balance||0)<0?'var(--danger)':'var(--success)'}">${(o.balance||0)>0?'₹'+fmt(o.balance):(o.balance||0)<0?'₹'+fmt(-o.balance)+' excess':'✓ Paid'}</td>
           <td>${o.status==='delivered'?'<span class="pill green">Delivered</span>':'<span class="pill amber">Pending</span>'}</td>
           <td style="text-align:right;white-space:nowrap">
             <button class="btn-sm" style="color:#16a34a;border-color:#16a34a" onclick="shareSale('${o.id}')" title="Send receipt on WhatsApp"><i class="ti ti-brand-whatsapp"></i></button>
@@ -606,6 +606,8 @@ async function saveOrder(id){
   if(!Object.keys(poles).length){ alert('Enter at least one pole quantity'); return; }
   const total   = Number(document.getElementById('o-total').value)||0;
   const advance = Number(document.getElementById('o-advance').value)||0;
+  if(total <= 0){ alert('Enter the Total amount for this sale.\n\nTip: set your pole rates in Settings and the total fills automatically, or type the total in the Total box.'); return; }
+  if(advance > total){ if(!confirm('Advance (₹'+fmt(advance)+') is more than Total (₹'+fmt(total)+'). Save anyway?')) return; }
   const old = id ? cache.orders.find(x=>x.id===id) : null;
   const paid = old ? (old.payments||[]).reduce((s,p)=>s+(Number(p.amount)||0),0) : 0;
   const data = {
