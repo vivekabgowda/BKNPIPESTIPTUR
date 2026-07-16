@@ -533,21 +533,91 @@ function openCustomerDetail(name){
   if(!orders.length) return;
   const total = orders.reduce((s,o)=>s+(Number(o.total)||0),0);
   const bal   = orders.reduce((s,o)=>s+Math.max(0,Number(o.balance)||0),0);
-  modal(`<div class="modal" style="width:640px">
-    <div class="modal-header"><h3>${esc(name)} — ${orders.length} orders · ₹${fmt(total)} total ${bal>0?'· <span style="color:var(--warning)">₹'+fmt(bal)+' due</span>':''}</h3>
+  const paid  = total - orders.reduce((s,o)=>s+(Number(o.balance)||0),0);
+  const phone = (orders.find(o=>o.phone)||{}).phone||'';
+  const nmeArg = esc(name).replace(/'/g,"\\'");
+  modal(`<div class="modal" style="width:660px">
+    <div class="modal-header"><h3>${esc(name)}${phone?` · ${esc(phone)}`:''}</h3>
       <button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
-    <div class="modal-body" style="padding:0">
-      <div style="overflow-x:auto"><table>
-        <thead><tr><th>Date</th><th>Poles</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Status</th></tr></thead>
+    <div class="modal-body" style="padding:14px 16px">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px">
+        <div class="stat-card"><div class="stat-label">Total business (${orders.length} sales)</div><div class="stat-value" style="font-size:16px">₹${fmt(total)}</div></div>
+        <div class="stat-card"><div class="stat-label">Total paid</div><div class="stat-value" style="font-size:16px;color:var(--success)">₹${fmt(paid)}</div></div>
+        <div class="stat-card"><div class="stat-label">Balance due</div><div class="stat-value" style="font-size:16px;color:${bal>0?'var(--warning)':'var(--success)'}">${bal>0?'₹'+fmt(bal):'✓ Clear'}</div></div>
+      </div>
+      <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px"><table>
+        <thead><tr><th>Date</th><th>Poles</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th></tr></thead>
         <tbody>${orders.map(o=>`<tr>
           <td style="font-size:12px;white-space:nowrap">${fmtDate(o.orderDate)}</td>
           <td style="font-size:12px">${POLE_TYPES.filter(t=>(o.poles||{})[t]>0).map(t=>`${t}×${o.poles[t]}`).join(', ')||'—'}</td>
           <td style="text-align:right">₹${fmt(o.total)}</td>
           <td style="text-align:right;color:${(o.balance||0)>0?'var(--warning)':'var(--success)'}">${(o.balance||0)>0?'₹'+fmt(o.balance):'✓'}</td>
-          <td>${o.status==='delivered'?'<span class="pill green">Delivered</span>':'<span class="pill amber">Pending</span>'}</td>
         </tr>`).join('')}</tbody></table></div>
     </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Close</button>
+      ${bal>0?`<button class="btn-primary" onclick="openCollectModal('${nmeArg}')">Collect payment (₹${fmt(bal)} due)</button>`:''}
+    </div>
   </div>`);
+}
+
+// Lump-sum payment against a customer's whole account — clears oldest bills first
+function openCollectModal(name){
+  const bal = cache.orders.filter(o=>(o.customer||'').trim().toLowerCase()===name.trim().toLowerCase())
+    .reduce((s,o)=>s+Math.max(0,Number(o.balance)||0),0);
+  modal(`<div class="modal">
+    <div class="modal-header"><h3>Collect payment — ${esc(name)}</h3><button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
+    <div class="modal-body">
+      <div style="font-size:13px;margin-bottom:10px">Total balance across all his sales: <strong style="color:var(--warning)">₹${fmt(bal)}</strong></div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Date</label><input type="date" id="col-date" value="${today()}"></div>
+        <div class="form-group"><label>Amount received (₹)</label><input type="number" min="0" inputmode="numeric" id="col-amt" value="${bal||''}" placeholder="e.g. 100000"></div>
+      </div>
+      <div class="form-group"><label>Note (optional)</label><input type="text" id="col-note" placeholder="e.g. cash / UPI"></div>
+      <div style="font-size:11.5px;color:var(--muted)">The amount is applied to his oldest unpaid sales first, automatically.</div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" onclick="saveCollect('${esc(name).replace(/'/g,"\\'")}')">Save payment</button>
+    </div>
+  </div>`);
+}
+
+async function saveCollect(name){
+  const amt  = Number(document.getElementById('col-amt').value)||0;
+  const date = document.getElementById('col-date').value;
+  const note = document.getElementById('col-note').value.trim();
+  if(amt<=0 || !date){ alert('Enter date and amount'); return; }
+  const btn = document.querySelector('.modal-footer .btn-primary');
+  if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+  // Oldest unpaid sales first (FIFO)
+  const orders = cache.orders.filter(o=>(o.customer||'').trim().toLowerCase()===name.trim().toLowerCase() && (Number(o.balance)||0)>0)
+    .sort((a,b)=>(a.orderDate||'').localeCompare(b.orderDate||''));
+  let remaining = amt;
+  const noteTxt = 'Account payment'+(note?' — '+note:'');
+  try {
+    const batch = firestoreDb.batch();
+    for(const o of orders){
+      if(remaining<=0) break;
+      const obal = Number(o.balance)||0;
+      const apply = Math.min(obal, remaining);
+      const payments = [...(o.payments||[]), { date, amount:apply, note:noteTxt }];
+      batch.update(col('orders').doc(o.id), { payments, balance: obal-apply });
+      remaining -= apply;
+    }
+    // Any excess beyond all dues → credit note on the most recent sale (balance goes negative = advance)
+    if(remaining>0 && orders.length){
+      const latest = cache.orders.filter(o=>(o.customer||'').trim().toLowerCase()===name.trim().toLowerCase())
+        .sort((a,b)=>(b.orderDate||'').localeCompare(a.orderDate||''))[0];
+      const payments = [...(latest.payments||[]), { date, amount:remaining, note:noteTxt+' (advance/credit)' }];
+      batch.update(col('orders').doc(latest.id), { payments, balance:(Number(latest.balance)||0)-remaining });
+    }
+    await batch.commit();
+    closeModal();
+  } catch(e){
+    alert('Save failed: '+e.message);
+    if(btn){ btn.disabled=false; btn.textContent='Save payment'; }
+  }
 }
 function openOrderModal(id){
   const o = id ? cache.orders.find(x=>x.id===id) : null;
