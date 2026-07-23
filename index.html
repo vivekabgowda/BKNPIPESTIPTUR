@@ -1095,6 +1095,38 @@ function renderTodayDigest(stockData, overdue) {
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────────
+let dashMatId = '';   // selected material for the consumption chart (dashboard only)
+
+// Reusable inline-SVG bar chart (no external library). pairs=[{l:label, v:value}]
+function dashBars(pairs, opts){
+  opts = opts||{}; const w=320, h=130, pad=20, base=h-16;
+  const max = Math.max(1, ...pairs.map(p=>p.v||0));
+  const bw = (w-pad*2)/Math.max(1,pairs.length);
+  const bars = pairs.map((p,i)=>{
+    const bh = (base-14)*((p.v||0)/max);
+    const x  = pad + i*bw, y = base - bh;
+    const lbl = (p.v>=1000) ? Math.round(p.v/1000)+'k' : Math.round(p.v||0);
+    return `<rect x="${(x+bw*0.15).toFixed(1)}" y="${y.toFixed(1)}" width="${(bw*0.7).toFixed(1)}" height="${Math.max(0,bh).toFixed(1)}" rx="3" fill="${opts.color||'var(--brand)'}"></rect>
+      <text x="${(x+bw/2).toFixed(1)}" y="${h-3}" font-size="9" fill="#64748b" text-anchor="middle">${esc(p.l)}</text>
+      ${p.v?`<text x="${(x+bw/2).toFixed(1)}" y="${(y-3).toFixed(1)}" font-size="9" fill="#334155" text-anchor="middle">${lbl}</text>`:''}`;
+  }).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;max-height:150px" preserveAspectRatio="xMidYMid meet">${bars}</svg>`;
+}
+// Last-6-months production totals + estimated material consumption (read-only from cache)
+function dashMonthlySeries(){
+  const now = new Date(today()); const months=[];
+  for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(), now.getMonth()-i, 1); months.push(d.toISOString().slice(0,7)); }
+  const prodBy={}, consBy={}; months.forEach(m=>{prodBy[m]=0;consBy[m]=0;});
+  const rates = cache.consume_rates||{};
+  const matId = dashMatId || (MAT_SINGLE[0] && MAT_SINGLE[0].id);
+  (cache.production||[]).forEach(p=>{
+    const m=(p.date||'').slice(0,7); if(!(m in prodBy)) return;
+    PIPE_TYPES.forEach(t=>{ const q=Number(p.pipes&&p.pipes[t])||0; prodBy[m]+=q; const r=rates[t]&&rates[t][matId]; if(r) consBy[m]+=q*Number(r); });
+  });
+  return { months, prodBy, consBy, matId };
+}
+function dashMonthLabel(ym){ const [y,m]=ym.split('-').map(Number); return new Date(y,m-1,1).toLocaleString('en-IN',{month:'short'}); }
+
 function renderDashboard() {
   const orders   = cache.orders;
   const prod     = cache.production;
@@ -1136,6 +1168,34 @@ function renderDashboard() {
       <div class="metric"><div class="metric-label">Delivered orders</div><div class="metric-value">${orders.filter(o=>o.status==='delivered').length}</div></div>
       <div class="metric"><div class="metric-label">Ready for dispatch</div><div class="metric-value" style="color:#1a6bc4">${orders.filter(o=>o.status==='ready').length}</div></div>
     </div>
+    ${(()=>{
+      const todayOrders = orders.filter(o=>o.orderDate===today());
+      const salesToday  = todayOrders.reduce((s,o)=>s+(Number(o.total)||0),0);
+      const tm = today().slice(0,7);
+      const prodThisMonth = prod.filter(p=>(p.date||'').startsWith(tm)).reduce((s,p)=>s+PIPE_TYPES.reduce((ss,t)=>ss+(Number(p.pipes&&p.pipes[t])||0),0),0);
+      const deliveredThisMonth = orders.filter(o=>o.status==='delivered' && (o.deliveryDate||o.orderDate||'').startsWith(tm)).length;
+      const S = dashMonthlySeries();
+      const matMeta=[...MAT_SINGLE, ...STEEL_WIRE_SIZES.map(sz=>({id:sz.id,label:'Wire '+sz.label}))];
+      return `
+      <div class="grid-4" style="margin-bottom:1rem">
+        <div class="metric"><div class="metric-label">Sales today</div><div class="metric-value" style="font-size:17px;color:#3b8a2a">₹${fmt(salesToday)}</div></div>
+        <div class="metric"><div class="metric-label">Orders today</div><div class="metric-value">${todayOrders.length}</div></div>
+        <div class="metric"><div class="metric-label">Produced this month</div><div class="metric-value">${fmt(prodThisMonth)}</div></div>
+        <div class="metric"><div class="metric-label">Delivered this month</div><div class="metric-value">${deliveredThisMonth}</div></div>
+      </div>
+      <div class="grid-2">
+        <div class="card"><div class="card-title">Monthly production (pipes)</div>${dashBars(S.months.map(m=>({l:dashMonthLabel(m),v:S.prodBy[m]})),{color:'#1a6bc4'})}</div>
+        <div class="card">
+          <div class="card-title">Est. material used
+            <select onchange="dashMatId=this.value;renderDashboard()" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-family:var(--font)">
+              ${matMeta.map(m=>`<option value="${esc(m.id)}" ${m.id===S.matId?'selected':''}>${esc(m.label)}</option>`).join('')}
+            </select>
+          </div>
+          ${dashBars(S.months.map(m=>({l:dashMonthLabel(m),v:Math.round(S.consBy[m])})),{color:'#ea580c'})}
+          <div style="font-size:11px;color:var(--muted);text-align:center;margin-top:4px">estimate = pipes produced × consumption rates</div>
+        </div>
+      </div>`;
+    })()}
     ${renderTodayDigest(stockData, overdue)}
     <div class="quick-actions">
       <button class="quick-action-btn" onclick="openQuickProdModal()"><i class="ti ti-tools"></i><span>Log Production</span></button>
