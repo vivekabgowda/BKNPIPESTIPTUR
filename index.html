@@ -2701,7 +2701,7 @@ function buildStaffOverview() {
               <td style="white-space:nowrap">${fmtDate(a.date)}</td><td>${esc(a.staff)}</td>
               <td style="font-weight:600">₹${fmt(a.amount)}</td>
               <td style="color:#888;font-size:12px">${esc(a.note||'—')}</td>
-              <td><button class="btn-sm btn-danger" onclick="delAdvance('${a.id}')">Del</button></td>
+              <td style="white-space:nowrap"><button class="btn-sm" onclick="openAdvModal(null,'${a.id}')">Edit</button> <button class="btn-sm btn-danger" onclick="delAdvance('${a.id}')">Del</button></td>
             </tr>`).join('')||`<tr><td colspan="5"><div class="empty-state" style="padding:1.5rem">No advances recorded</div></td></tr>`}
           </tbody>
         </table>
@@ -3258,32 +3258,37 @@ async function saveAttendance() {
     if(btn){btn.disabled=false;btn.textContent='Save attendance';}
   }
 }
-function openAdvModal(staffName) {
+function openAdvModal(staffName, editId) {
+  const ed = editId ? (cache.advances||[]).find(a=>a.id===editId) : null;
+  const cur = ed ? ed.staff : (staffName||STAFF[0]);
+  const staffOpts = STAFF.map(s=>`<option value="${esc(s)}" ${s===cur?'selected':''}>${esc(s)}</option>`).join('');
   modal(`<div class="modal">
     <div class="modal-header">
-      <h3 style="font-size:15px;font-weight:600">Record advance — ${esc(staffName)}</h3>
+      <h3 style="font-size:15px;font-weight:600">${ed?'Edit advance':'Record advance'}</h3>
       <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
     </div>
     <div class="modal-body">
-      <input type="hidden" id="adv-staff" value="${esc(staffName)}">
-      <div class="form-group"><label>Date</label><input type="date" id="adv-date" value="${today()}"></div>
-      <div class="form-group"><label>Amount (₹)</label><input type="number" id="adv-amount" min="0" placeholder="0" inputmode="numeric"></div>
-      <div class="form-group"><label>Reason / note</label><input type="text" id="adv-note" placeholder="Festival advance, medical, etc."></div>
+      <div class="form-group"><label>Staff *</label>
+        <select id="adv-staff" style="font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;width:100%;font-family:var(--font)">${staffOpts}</select>
+      </div>
+      <div class="form-group"><label>Date</label><input type="date" id="adv-date" value="${ed?ed.date:today()}"></div>
+      <div class="form-group"><label>Amount (₹)</label><input type="number" id="adv-amount" min="0" placeholder="0" inputmode="numeric" value="${ed?ed.amount:''}"></div>
+      <div class="form-group"><label>Reason / note</label><input type="text" id="adv-note" placeholder="Festival advance, medical, etc." value="${ed?esc(ed.note||''):''}"></div>
     </div>
     <div class="modal-footer">
       <button onclick="closeModal()">Cancel</button>
-      <button class="btn-primary" onclick="saveAdvance()">Save</button>
+      <button class="btn-primary" onclick="saveAdvance('${editId||''}')">Save</button>
     </div>
   </div>`);
 }
-async function saveAdvance() {
+async function saveAdvance(editId) {
   const btn = document.querySelector('.modal-footer .btn-primary');
   if(btn) { btn.disabled=true; btn.textContent='Saving…'; }
   const staff = document.getElementById('adv-staff').value;
   const amount=Number(document.getElementById('adv-amount').value||0);
   if(!amount) { alert('Enter an amount'); if(btn){btn.disabled=false;btn.textContent='Save';} return; }
   try {
-    await col('advances').doc(uid()).set({ date:document.getElementById('adv-date').value, staff, amount, note:document.getElementById('adv-note').value });
+    await col('advances').doc(editId||uid()).set({ date:document.getElementById('adv-date').value, staff, amount, note:document.getElementById('adv-note').value });
     closeModal();
   } catch(e) {
     alert('Save failed: '+e.message);
