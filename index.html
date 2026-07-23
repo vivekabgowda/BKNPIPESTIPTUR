@@ -2695,16 +2695,16 @@ function buildStaffOverview() {
       </div>
       <div class="card" style="padding:0;overflow:hidden">
         <div style="padding:1rem 1.25rem 0.75rem;font-size:14px;font-weight:600;border-bottom:1px solid #f0f0ec">Advance ledger</div>
-        <table><thead><tr><th>Date</th><th>Staff</th><th>Amount</th><th>Note</th><th></th></tr></thead>
+        <div style="overflow-x:auto"><table style="min-width:520px"><thead><tr><th>Date</th><th>Staff</th><th>Amount</th><th>Note</th><th style="text-align:right">Actions</th></tr></thead>
           <tbody>
             ${advances.slice(0,20).map(a=>`<tr>
-              <td style="white-space:nowrap">${fmtDate(a.date)}</td><td>${esc(a.staff)}</td>
+              <td style="white-space:nowrap">${fmtDate(a.date)}</td><td style="white-space:nowrap">${esc(a.staff)}</td>
               <td style="font-weight:600">₹${fmt(a.amount)}</td>
               <td style="color:#888;font-size:12px">${esc(a.note||'—')}</td>
-              <td style="white-space:nowrap"><button class="btn-sm" onclick="openAdvModal(null,'${a.id}')">Edit</button> <button class="btn-sm btn-danger" onclick="delAdvance('${a.id}')">Del</button></td>
+              <td style="white-space:nowrap;text-align:right"><button class="btn-sm" onclick="openAdvModal(null,'${a.id}')">Edit</button> <button class="btn-sm btn-danger" onclick="delAdvance('${a.id}')">Del</button></td>
             </tr>`).join('')||`<tr><td colspan="5"><div class="empty-state" style="padding:1.5rem">No advances recorded</div></td></tr>`}
           </tbody>
-        </table>
+        </table></div>
         ${advances.length > 20 ? `<div style="padding:10px 1rem;font-size:12px;color:#888;border-top:1px solid #f0f0ec">Showing 20 of ${advances.length} advances. Export to Excel for full history.</div>` : ''}
       </div>
     </div>`;
