@@ -1302,46 +1302,144 @@ function switchTab(tab) {
   renderOrderList(tab);
 }
 
+// ── Smart Dispatch engine — sequences deliveries along the real road network's
+//    shortest-path tree (correct across forks), not by straight-line or plain km sort.
+function pipeCount(o){ return PIPE_TYPES.reduce((s,t)=>s+(Number(o.pipes&&o.pipes[t])||0),0); }
+function vIdx(name){ return VIDX[(name||'').trim().toLowerCase()]; }
+function vParent(i){ return VILLAGES[i][6]; }
+function vRoadKm(i){ return VILLAGES[i][2]; }
+function vEdgeKm(i){ return VILLAGES[i][7]; }
+function vEdgeMin(i){ return VILLAGES[i][8]; }
+function vBranchRoot(i){ let u=i,g=0; while(VILLAGES[u][6]>=0 && g++<80) u=VILLAGES[u][6]; return u; }
+function vRootPath(i){ const p=[]; let u=i,g=0; while(u>=0 && g++<80){ p.push(u); u=VILLAGES[u][6]; } return p; }
+function dispatchLimits(){
+  return { maxStops: Number(localStorage.getItem('hpf_disp_maxstops'))||6,
+           maxLoad:  Number(localStorage.getItem('hpf_disp_maxload'))||0,
+           maxDetour:Number(localStorage.getItem('hpf_disp_maxdetour'))||8 };
+}
+function saveDispatchLimits(){
+  const s=parseInt(document.getElementById('disp-maxstops')?.value)||6;
+  const l=parseInt(document.getElementById('disp-maxload')?.value)||0;
+  const d=parseInt(document.getElementById('disp-maxdetour')?.value)||8;
+  localStorage.setItem('hpf_disp_maxstops', s); localStorage.setItem('hpf_disp_maxload', l);
+  localStorage.setItem('hpf_disp_maxdetour', d);
+  renderDeliverySchedule();
+}
+// Lowest common ancestor + road-network distance between two villages on the tree
+function vLCA(a,b){ const pa=new Set(vRootPath(a)); let u=b,g=0; while(u>=0&&g++<80){ if(pa.has(u)) return u; u=vParent(u); } return -1; }
+function vTreeDist(a,b){ const l=vLCA(a,b); const lk=l>=0?vRoadKm(l):0; return vRoadKm(a)+vRoadKm(b)-2*lk; }
+// Group a day's orders into suggested trips. Splits by capacity AND by road detour
+// (a stop that needs significant backtracking to reach starts a new trip). {trips, manual}
+function planDispatch(orders, maxStops, maxLoad, maxDetour){
+  const stops=new Map(), manual=[];
+  orders.forEach(o=>{
+    const i=vIdx(o.address);
+    if(i===undefined){ manual.push(o); return; }
+    if(!stops.has(i)) stops.set(i,{vidx:i, orders:[], load:0, balance:0});
+    const s=stops.get(i); s.orders.push(o); s.load+=pipeCount(o); s.balance+=Number(o.balance)||0;
+  });
+  // Induced subtree over ALL order villages; global DFS from depot for the drive order
+  const inSub=new Set();
+  stops.forEach(s=>vRootPath(s.vidx).forEach(n=>inSub.add(n)));
+  const children=new Map();
+  inSub.forEach(n=>{ const p=vParent(n); if(inSub.has(p)){ (children.get(p)||children.set(p,[]).get(p)).push(n); } });
+  const roots=[...inSub].filter(n=>!inSub.has(vParent(n)));
+  const seq=[];
+  const dfs=n=>{ if(stops.has(n)) seq.push(stops.get(n)); (children.get(n)||[]).sort((a,b)=>vRoadKm(a)-vRoadKm(b)).forEach(dfs); };
+  roots.sort((a,b)=>vRoadKm(a)-vRoadKm(b)).forEach(dfs);
+  // Walk the drive order; start a new trip on capacity OR big backtrack (different corridor/spur)
+  const trips=[]; let cur=[], load=0;
+  const flush=()=>{ if(cur.length){ trips.push(makeTrip(cur)); cur=[]; load=0; } };
+  seq.forEach(s=>{
+    if(cur.length){
+      const prev=cur[cur.length-1];
+      const overCap = cur.length>=maxStops || (maxLoad>0 && load+s.load>maxLoad);
+      const detour  = vTreeDist(prev.vidx, s.vidx) > maxDetour;
+      if(overCap || detour) flush();
+    }
+    cur.push(s); load+=s.load;
+  });
+  flush();
+  trips.sort((a,b)=>a.minKm-b.minKm);
+  return {trips, manual};
+}
+function makeTrip(stops){
+  const sub=new Set();
+  stops.forEach(s=>vRootPath(s.vidx).forEach(n=>sub.add(n)));
+  let oneway=0, mins=0;
+  sub.forEach(n=>{ oneway+=vEdgeKm(n)||0; mins+=vEdgeMin(n)||0; });
+  const kms=stops.map(s=>vRoadKm(s.vidx));
+  return { stops, corridor:VILLAGES[stops[0].vidx][5],
+    roundKm:Math.round(oneway*2), roundMin:Math.round(mins*2),
+    load:stops.reduce((a,s)=>a+s.load,0), balance:stops.reduce((a,s)=>a+s.balance,0),
+    orders:stops.reduce((a,s)=>a+s.orders.length,0),
+    minKm:Math.min(...kms), maxKm:Math.max(...kms) };
+}
+
 function renderDeliverySchedule() {
   const el = document.getElementById('order-list');
   const now = today();
-  // Only active orders with a delivery date
   const active = cache.orders.filter(o => o.deliveryDate && o.status !== 'delivered');
+  const {maxStops, maxLoad, maxDetour} = dispatchLimits();
+  const controls = `<div class="card" style="padding:9px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px">
+    <span style="font-weight:700"><i class="ti ti-route"></i> Smart Dispatch</span>
+    <span style="color:var(--muted)">Max stops</span>
+    <input type="number" id="disp-maxstops" value="${maxStops}" min="1" style="width:48px;font-size:12px;padding:3px 6px" onchange="saveDispatchLimits()">
+    <span style="color:var(--muted)">Max pipes</span>
+    <input type="number" id="disp-maxload" value="${maxLoad}" min="0" placeholder="0=off" style="width:56px;font-size:12px;padding:3px 6px" onchange="saveDispatchLimits()">
+    <span style="color:var(--muted)">Max detour km</span>
+    <input type="number" id="disp-maxdetour" value="${maxDetour}" min="1" style="width:48px;font-size:12px;padding:3px 6px" onchange="saveDispatchLimits()">
+    <span style="color:var(--muted);font-size:11px">grouped by real road network</span>
+  </div>`;
   if(!active.length) {
-    el.innerHTML = `<div class="card empty-state"><i class="ti ti-calendar-off"></i>No upcoming deliveries scheduled</div>`;
+    el.innerHTML = controls + `<div class="card empty-state"><i class="ti ti-calendar-off"></i>No upcoming deliveries scheduled</div>`;
     return;
   }
-  // Group by deliveryDate
   const byDate = {};
   active.forEach(o => { (byDate[o.deliveryDate] = byDate[o.deliveryDate]||[]).push(o); });
   const sortedDates = Object.keys(byDate).sort();
-  el.innerHTML = sortedDates.map(date => {
+  el.innerHTML = controls + sortedDates.map(date => {
     const orders   = byDate[date];
     const isPast   = date < now;
     const isToday  = date === now;
     const dotColor = isPast ? 'var(--danger)' : isToday ? '#d97706' : 'var(--success)';
     const label    = isToday ? 'TODAY' : isPast ? 'OVERDUE' : '';
+    const {trips, manual} = planDispatch(orders, maxStops, maxLoad, maxDetour);
+    const tripHtml = trips.map((t,ti)=>`
+      <div style="border-bottom:1px solid var(--border-light)">
+        <div style="padding:8px 14px;background:var(--bg);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-weight:700;font-size:12px;color:var(--brand)"><i class="ti ti-truck-delivery"></i> Trip ${ti+1} · ${esc(t.corridor)}</span>
+          <span style="font-size:11px;color:var(--muted);margin-left:auto">${t.stops.length} stop${t.stops.length>1?'s':''} · ${t.load} pipes · ~${t.roundKm}km round · ~${t.roundMin>60?Math.round(t.roundMin/60*10)/10+'h':t.roundMin+'min'} · ₹${fmt(t.balance)}</span>
+        </div>
+        ${t.stops.map((s,si)=>{
+          const o0=s.orders[0];
+          const pipes = s.orders.map(o=>PIPE_TYPES.filter(t=>(o.pipes||{})[t]>0).map(t=>`${t}×${o.pipes[t]}`).join(', ')).join(' | ');
+          const custs = s.orders.map(o=>esc(o.customer)).join(', ');
+          return `<div style="padding:9px 14px 9px 22px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:11px;font-weight:700;color:var(--muted);min-width:16px">${si+1}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600">${esc(VILLAGES[s.vidx][0])} <span style="font-size:11px;color:var(--muted);font-weight:400">${vRoadKm(s.vidx)}km · ${s.orders.length>1?s.orders.length+' orders':'1 order'}</span></div>
+              <div style="font-size:12px;color:var(--muted)">${custs}</div>
+              <div style="font-size:12px;color:var(--brand)">${esc(pipes||'—')}</div>
+            </div>
+            <div style="text-align:right;flex-shrink:0"><div style="font-size:12px;font-weight:600">₹${fmt(s.balance)}</div></div>
+          </div>`;
+        }).join('')}
+      </div>`).join('');
+    const manualHtml = manual.length ? `
+      <div style="padding:8px 14px;background:#fff7ed;font-size:12px;color:#9a3412;font-weight:600"><i class="ti ti-map-pin-question"></i> Not on road map — assign manually (${manual.length})</div>
+      ${manual.map(o=>`<div style="padding:9px 14px 9px 22px;border-bottom:1px solid var(--border-light)">
+        <div style="font-size:13px;font-weight:600">${esc(o.customer)} <span style="font-size:11px;color:var(--muted);font-weight:400">${esc(o.address||'no address')}</span></div>
+        <div style="font-size:12px;color:var(--brand)">${PIPE_TYPES.filter(t=>(o.pipes||{})[t]>0).map(t=>`${t}×${o.pipes[t]}`).join(', ')||'—'} · ₹${fmt(o.balance)}</div>
+      </div>`).join('')}` : '';
     return `<div class="card" style="margin-bottom:10px;padding:0;overflow:hidden">
       <div style="padding:10px 14px;background:${isPast?'var(--danger-bg)':isToday?'var(--warning-bg)':'var(--brand-light)'};display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border-light)">
         <span style="width:10px;height:10px;border-radius:50%;background:${dotColor};flex-shrink:0"></span>
         <strong style="font-size:13px">${fmtDate(date)}</strong>
         ${label?`<span style="font-size:11px;font-weight:700;color:${dotColor};margin-left:2px">${label}</span>`:''}
-        <span style="font-size:12px;color:var(--muted);margin-left:auto">${orders.length} order${orders.length>1?'s':''}</span>
+        <span style="font-size:12px;color:var(--muted);margin-left:auto">${orders.length} order${orders.length>1?'s':''} · ${trips.length} trip${trips.length!==1?'s':''}</span>
       </div>
-      ${orders.map(o=>{
-        const pipes = PIPE_TYPES.filter(t=>(o.pipes||{})[t]>0).map(t=>`${t}×${o.pipes[t]}`).join(', ');
-        return `<div style="padding:10px 14px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <div style="flex:1;min-width:0">
-            <div style="font-size:13px;font-weight:600">${esc(o.customer)}</div>
-            <div style="font-size:12px;color:var(--muted)">${esc(o.address||'—')}${o.km?' · '+o.km+' km':''}</div>
-            <div style="font-size:12px;color:var(--brand);margin-top:2px">${esc(pipes||'—')}</div>
-          </div>
-          <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:12px;font-weight:600">₹${fmt(o.balance)} due</div>
-            <span style="font-size:11px;padding:2px 7px;border-radius:10px;background:${o.status==='ready'?'var(--success-bg)':'var(--warning-bg)'};color:${o.status==='ready'?'var(--success)':'var(--warning)'};font-weight:600">${o.status||'pending'}</span>
-          </div>
-        </div>`;
-      }).join('')}
+      ${tripHtml}${manualHtml}
     </div>`;
   }).join('');
 }
