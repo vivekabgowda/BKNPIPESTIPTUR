@@ -413,6 +413,7 @@ const PAGES = [
   { id:'dashboard',  label:'Dashboard',  icon:'ti-layout-dashboard' },
   { id:'orders',     label:'Orders',     icon:'ti-clipboard-list' },
   { id:'production', label:'Production', icon:'ti-tools' },
+  { id:'planning',   label:'Planning',   icon:'ti-calendar-stats' },
   { id:'dispatch',   label:'Dispatch',   icon:'ti-truck' },
   { id:'materials',  label:'Materials',  icon:'ti-package' },
   { id:'suppliers',  label:'Suppliers',  icon:'ti-receipt' },
@@ -670,7 +671,7 @@ function listen(colName, callback) {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function initApp(user) {
-  const [orders, production, attendance, advances, materials, expenses, assign, karchi, salaryPay, shopExp, shopPay, staffDoc, payDoc, openingDoc, matOpeningDoc, consumeRatesDoc, pipeRatesDoc, piecerateDoc, pipeThreshDoc, matThreshDoc, gstInvoices, gstProfileDoc, quotations] = await Promise.all([
+  const [orders, production, attendance, advances, materials, expenses, assign, karchi, salaryPay, shopExp, shopPay, staffDoc, payDoc, openingDoc, matOpeningDoc, consumeRatesDoc, pipeRatesDoc, piecerateDoc, pipeThreshDoc, matThreshDoc, gstInvoices, gstProfileDoc, quotations, planTargets] = await Promise.all([
     getAll('orders'), getAll('production'), getAll('attendance'), getAll('advances'), getAll('materials'), getAll('expenses'), getAssign(),
     getAll('labour_karchi'),
     getAll('salary_payments'),
@@ -687,7 +688,8 @@ async function initApp(user) {
     firestoreDb.collection('meta').doc('mat_stock_thresholds').get().catch(()=>null),
     getAll('gst_invoices'),
     firestoreDb.collection('meta').doc('gst_profile').get().catch(()=>null),
-    getAll('quotations')
+    getAll('quotations'),
+    getAll('production_targets').catch(()=>[])   // NEW isolated collection (Production Planning); safe if absent
   ]);
 
   // Staff names: Firestore is authoritative (syncs across devices)
@@ -740,7 +742,7 @@ async function initApp(user) {
   }
 
   const gst_profile = (gstProfileDoc && gstProfileDoc.exists) ? gstProfileDoc.data() : {};
-  cache = { orders, production, attendance, advances, materials, expenses, dispatch_assign: assign, pipe_opening, mat_opening, labour_karchi: karchi, salary_payments: salaryPay, consume_rates, pipe_rates, piecerate, pipe_stock_thresholds: pipe_stock_thresholds||{}, mat_stock_thresholds: mat_stock_thresholds||{}, shop_expenses: shopExp, shop_payments: shopPay, gst_invoices: gstInvoices, gst_profile, quotations };
+  cache = { orders, production, attendance, advances, materials, expenses, dispatch_assign: assign, pipe_opening, mat_opening, labour_karchi: karchi, salary_payments: salaryPay, consume_rates, pipe_rates, piecerate, pipe_stock_thresholds: pipe_stock_thresholds||{}, mat_stock_thresholds: mat_stock_thresholds||{}, shop_expenses: shopExp, shop_payments: shopPay, gst_invoices: gstInvoices, gst_profile, quotations, production_targets: planTargets||[] };
 
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
@@ -758,6 +760,7 @@ async function initApp(user) {
   listen('salary_payments',  () => { if(currentPage==='staff'||currentPage==='profit') goto(currentPage,true); });
   listen('gst_invoices',     () => { if(currentPage==='gstbilling') goto(currentPage,true); });
   listen('quotations',       () => { if(currentPage==='gstbilling') goto(currentPage,true); });
+  listen('production_targets',() => { if(currentPage==='planning') goto(currentPage,true); });  // NEW isolated collection
 
   // Real-time staff name sync
   firestoreDb.collection('meta').doc('staff_config').onSnapshot(doc => {
@@ -809,7 +812,7 @@ function goto(page, silent=false) {
   bnActive(page);
   document.getElementById('page-title').textContent = PAGES.find(p=>p.id===page).label;
   document.getElementById('topbar-action').innerHTML = '';
-  ({dashboard:renderDashboard,orders:renderOrders,production:renderProduction,dispatch:renderDispatch,materials:renderMaterials,suppliers:renderSuppliers,expenses:renderExpenses,profit:renderProfit,gstbilling:renderGSTBilling,staff:renderStaff,settings:renderSettings})[page]();
+  ({dashboard:renderDashboard,orders:renderOrders,production:renderProduction,planning:renderPlanning,dispatch:renderDispatch,materials:renderMaterials,suppliers:renderSuppliers,expenses:renderExpenses,profit:renderProfit,gstbilling:renderGSTBilling,staff:renderStaff,settings:renderSettings})[page]();
 }
 
 // ── EXPORT TO EXCEL ───────────────────────────────────────────────────────────
@@ -2116,6 +2119,167 @@ async function saveQuickProd(id) {
   }
 }
 
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PRODUCTION PLANNING  (added feature)
+// Writes ONLY to the new, isolated `production_targets` collection.
+// Every existing collection (orders, production, materials, meta.*) is READ-ONLY here.
+// ══════════════════════════════════════════════════════════════════════════════
+let planViewDate = '';   // selected date for the daily target editor / calendar
+
+// Pending (undelivered) orders — read-only view of existing `orders`
+function planPendingOrders(){ return cache.orders.filter(o=>o.status!=='delivered'); }
+// Pipe-wise pending quantity across all pending orders
+function planPendingByPipe(){
+  const need={}; PIPE_TYPES.forEach(t=>need[t]=0);
+  planPendingOrders().forEach(o=>PIPE_TYPES.forEach(t=>need[t]+=(Number(o.pipes&&o.pipes[t])||0)));
+  return need;
+}
+// Material requirement estimate = Σ pendingQty(pipe) × consumption-rate(pipe, material)
+function planMaterialNeed(pendingByPipe){
+  const rates=cache.consume_rates||{};
+  const matMeta=[...MAT_SINGLE, ...STEEL_WIRE_SIZES.map(sz=>({id:sz.id,label:'Wire '+sz.label,unit:sz.unit}))];
+  return matMeta.map(m=>{
+    let qty=0; PIPE_TYPES.forEach(t=>{ const r=rates[t]&&rates[t][m.id]; if(r) qty+=(pendingByPipe[t]||0)*Number(r); });
+    return {label:m.label, unit:m.unit, qty:Math.round(qty*100)/100};
+  }).filter(x=>x.qty>0);
+}
+function planTargetFor(date){ return (cache.production_targets||[]).find(t=>t.date===date); }
+function planActualFor(date){
+  const a={}; PIPE_TYPES.forEach(t=>a[t]=0);
+  cache.production.filter(p=>p.date===date).forEach(p=>PIPE_TYPES.forEach(t=>a[t]+=(Number(p.pipes&&p.pipes[t])||0)));
+  return a;
+}
+function planDaysLeft(date){ if(!date) return null; return Math.round((new Date(date)-new Date(today()))/86400000); }
+
+function renderPlanning(){
+  if(!planViewDate) planViewDate = today();
+  const pending      = planPendingByPipe();
+  const totalPending = PIPE_TYPES.reduce((s,t)=>s+pending[t],0);
+  const pendOrders   = planPendingOrders();
+  const matNeed      = planMaterialNeed(pending);
+  const tgt          = planTargetFor(planViewDate);
+  const act          = planActualFor(planViewDate);
+  const tgtTotal     = tgt ? Object.values(tgt.targets||{}).reduce((s,v)=>s+Number(v),0) : 0;
+  const actTotal     = PIPE_TYPES.reduce((s,t)=>s+act[t],0);
+
+  // Suggested production/dispatch sequence — pending orders by delivery urgency then balance
+  const seq = [...pendOrders].sort((a,b)=>{
+    const da=a.deliveryDate||'9999', db=b.deliveryDate||'9999';
+    if(da!==db) return da<db?-1:1;
+    return (Number(b.balance)||0)-(Number(a.balance)||0);
+  });
+
+  // Production calendar — current month, target vs actual totals per day
+  const ym = planViewDate.slice(0,7);
+  const [cy,cm] = ym.split('-').map(Number);
+  const daysInMonth = new Date(cy,cm,0).getDate();
+  const calCells = [];
+  for(let d=1; d<=daysInMonth; d++){
+    const ds = ym+'-'+String(d).padStart(2,'0');
+    const t = planTargetFor(ds); const a = planActualFor(ds);
+    const tt = t?Object.values(t.targets||{}).reduce((s,v)=>s+Number(v),0):0;
+    const aa = PIPE_TYPES.reduce((s,x)=>s+a[x],0);
+    calCells.push({d, ds, tt, aa, sel:ds===planViewDate});
+  }
+
+  document.getElementById('content').innerHTML = `
+    <div class="alert alert-info" style="margin-bottom:1rem"><i class="ti ti-info-circle"></i> Planning is advisory. It reads your live orders &amp; production but writes only production targets — it never changes orders, production or stock.</div>
+
+    <!-- KPI strip -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1rem">
+      <div class="metric"><div class="metric-label">Pending orders</div><div class="metric-value">${pendOrders.length}</div></div>
+      <div class="metric"><div class="metric-label">Pipes to produce</div><div class="metric-value" style="color:var(--brand)">${fmt(totalPending)}</div></div>
+      <div class="metric"><div class="metric-label">Due next 7 days</div><div class="metric-value" style="color:var(--warning)">${pendOrders.filter(o=>{const dl=planDaysLeft(o.deliveryDate);return dl!==null&&dl>=0&&dl<=7;}).length}</div></div>
+      <div class="metric"><div class="metric-label">Overdue</div><div class="metric-value" style="color:var(--danger)">${pendOrders.filter(o=>{const dl=planDaysLeft(o.deliveryDate);return dl!==null&&dl<0;}).length}</div></div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start" class="plan-grid">
+      <!-- Pipe-wise requirement -->
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)">Pipe-wise production requirement <span style="font-size:11px;font-weight:400;color:var(--muted)">from ${pendOrders.length} pending orders</span></div>
+        <div style="overflow-x:auto"><table style="font-size:13px"><thead><tr><th>Pipe type</th><th style="text-align:right">Pending qty</th></tr></thead>
+          <tbody>${PIPE_TYPES.filter(t=>pending[t]>0).map(t=>`<tr><td>${esc(t)}</td><td style="text-align:right;font-weight:600">${fmt(pending[t])}</td></tr>`).join('')||`<tr><td colspan="2"><div class="empty-state" style="padding:1rem">No pending pipes</div></td></tr>`}
+          ${totalPending>0?`<tr style="background:var(--bg)"><td style="font-weight:700">Total</td><td style="text-align:right;font-weight:700">${fmt(totalPending)}</td></tr>`:''}</tbody></table></div>
+      </div>
+
+      <!-- Material requirement estimate -->
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)">Material requirement estimate <span style="font-size:11px;font-weight:400;color:var(--muted)">for all pending pipes</span></div>
+        <div style="overflow-x:auto"><table style="font-size:13px"><thead><tr><th>Material</th><th style="text-align:right">Estimated need</th></tr></thead>
+          <tbody>${matNeed.length?matNeed.map(m=>`<tr><td>${esc(m.label)}</td><td style="text-align:right;font-weight:600">${fmt(m.qty)} ${esc(m.unit)}</td></tr>`).join(''):`<tr><td colspan="2"><div class="empty-state" style="padding:1rem">Set consumption rates in Materials → Rates to estimate</div></td></tr>`}</tbody></table></div>
+      </div>
+    </div>
+
+    <!-- Daily target editor + target vs actual -->
+    <div class="card" style="margin-top:12px;padding:0;overflow:hidden">
+      <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        Production target
+        <input type="date" id="plan-date" value="${planViewDate}" onchange="planViewDate=this.value;renderPlanning()" style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font)">
+        ${(()=>{const dl=planDaysLeft(planViewDate);return dl===0?'<span style="font-size:11px;font-weight:700;color:var(--warning)">TODAY</span>':dl<0?`<span style="font-size:11px;color:var(--danger)">${-dl}d ago</span>`:`<span style="font-size:11px;color:var(--muted)">in ${dl}d</span>`;})()}
+      </div>
+      <div style="padding:0.875rem 1.25rem">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-bottom:10px">
+          ${PIPE_TYPES.map((t,i)=>`<div><label style="font-size:11px;color:var(--muted);display:block;margin-bottom:3px">${esc(t)}<br><span style="font-size:10px">made: ${act[t]||0}</span></label>
+            <input type="number" min="0" id="plan-tgt-${i}" value="${tgt&&tgt.targets&&tgt.targets[t]||''}" placeholder="0" inputmode="numeric" style="width:100%;font-size:13px;padding:5px 7px;border:1px solid ${act[t]&&tgt&&tgt.targets&&act[t]>=tgt.targets[t]?'var(--success)':'var(--border)'};border-radius:6px"></div>`).join('')}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="plan-note" value="${tgt?esc(tgt.note||''):''}" placeholder="Note (optional)" style="flex:1;min-width:140px;font-size:13px;padding:6px 9px;border:1px solid var(--border);border-radius:6px;font-family:var(--font)">
+          <button class="btn-primary" id="plan-save-btn" onclick="savePlanTarget()">Save target</button>
+          ${tgt?`<button class="btn-sm btn-danger" onclick="delPlanTarget('${tgt.id}')">Delete</button>`:''}
+        </div>
+        ${tgt?`<div style="margin-top:10px;font-size:12px;color:var(--muted)">Target-vs-actual for ${fmtDate(planViewDate)}: <strong>${actTotal}</strong> made of <strong>${tgtTotal}</strong> planned ${tgtTotal?`· <span style="color:${actTotal>=tgtTotal?'var(--success)':'var(--warning)'}">${Math.round(actTotal/tgtTotal*100)}%</span>`:''}</div>`:''}
+      </div>
+    </div>
+
+    <!-- Production calendar (this month) -->
+    <div class="card" style="margin-top:12px;padding:0;overflow:hidden">
+      <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)">Production calendar <span style="font-size:11px;font-weight:400;color:var(--muted)">${new Date(cy,cm-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'})} · T=target A=actual</span></div>
+      <div style="padding:10px 1rem;display:grid;grid-template-columns:repeat(7,1fr);gap:4px">
+        ${calCells.map(c=>`<div onclick="planViewDate='${c.ds}';renderPlanning()" style="cursor:pointer;border:1px solid ${c.sel?'var(--brand)':'var(--border-light)'};border-radius:6px;padding:5px 4px;min-height:44px;background:${c.sel?'var(--brand-light)':c.aa>0?'var(--success-bg)':'transparent'}">
+          <div style="font-size:11px;font-weight:600">${c.d}</div>
+          ${c.tt?`<div style="font-size:9px;color:var(--warning)">T${c.tt}</div>`:''}
+          ${c.aa?`<div style="font-size:9px;color:var(--success)">A${c.aa}</div>`:''}
+        </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Suggested production / dispatch sequence -->
+    <div class="card" style="margin-top:12px;padding:0;overflow:hidden">
+      <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)">Suggested production &amp; dispatch sequence <span style="font-size:11px;font-weight:400;color:var(--muted)">most urgent first</span></div>
+      <div style="overflow-x:auto"><table style="font-size:12px"><thead><tr><th>#</th><th>Delivery</th><th>Customer</th><th>Pipes</th><th style="text-align:right">Balance</th></tr></thead>
+        <tbody>${seq.slice(0,40).map((o,i)=>{
+          const dl=planDaysLeft(o.deliveryDate);
+          const urg = dl===null?'':dl<0?`<span style="color:var(--danger);font-weight:700">${-dl}d overdue</span>`:dl===0?'<span style="color:var(--warning);font-weight:700">today</span>':`<span style="color:var(--muted)">in ${dl}d</span>`;
+          const pipes=PIPE_TYPES.filter(t=>(o.pipes||{})[t]>0).map(t=>`${t}×${o.pipes[t]}`).join(', ');
+          return `<tr>
+            <td style="color:var(--muted)">${i+1}</td>
+            <td style="white-space:nowrap">${o.deliveryDate?fmtDate(o.deliveryDate):'—'}<div style="font-size:10px">${urg}</div></td>
+            <td style="font-weight:600">${esc(o.customer)}</td>
+            <td>${esc(pipes||'—')}</td>
+            <td style="text-align:right">${o.balance>0?'₹'+fmt(o.balance):'✓'}</td>
+          </tr>`;}).join('')||`<tr><td colspan="5"><div class="empty-state" style="padding:1.5rem">No pending orders 🎉</div></td></tr>`}</tbody></table></div>
+    </div>`;
+}
+
+async function savePlanTarget(){
+  const date=document.getElementById('plan-date').value;
+  if(!date){ alert('Pick a date'); return; }
+  const targets={};
+  PIPE_TYPES.forEach((t,i)=>{ const v=parseInt(document.getElementById('plan-tgt-'+i)?.value)||0; if(v>0) targets[t]=v; });
+  const note=document.getElementById('plan-note')?.value.trim()||'';
+  const existing=planTargetFor(date);
+  const btn=document.getElementById('plan-save-btn'); if(btn){btn.disabled=true;btn.textContent='Saving…';}
+  try{
+    // writes ONLY to the new isolated collection
+    await col('production_targets').doc(existing?existing.id:uid()).set({ date, targets, note, createdAt: existing?(existing.createdAt||today()):today() });
+    if(btn){btn.textContent='Saved ✓'; setTimeout(()=>{btn.disabled=false;btn.textContent='Save target';},1200);}
+  }catch(e){ alert('Save failed: '+e.message); if(btn){btn.disabled=false;btn.textContent='Save target';} }
+}
+async function delPlanTarget(id){
+  if(!confirm('Delete this production target? (Only removes the plan — no orders/production affected)')) return;
+  try{ await col('production_targets').doc(id).delete(); }catch(e){ alert('Delete failed: '+e.message); }
+}
 
 // ── DISPATCH ──────────────────────────────────────────────────────────────────
 function renderDispatch() {
