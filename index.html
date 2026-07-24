@@ -360,6 +360,23 @@ a[style*="color:#1a6bc4"]{ color:var(--brand-mid)!important; }
   .ord-view-table{ display:none !important; }
   .ord-view-cards{ display:block; }
 }
+
+/* ── Dispatch: desktop table vs mobile per-stop cards ── */
+.disp-view-cards{ display:none; }
+.dcard{ background:var(--white); border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:9px; box-shadow:var(--shadow-sm); }
+.dcard-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+.dcard-name{ font-weight:700; font-size:14.5px; letter-spacing:-.01em; display:flex; align-items:center; gap:7px; }
+.dcard-seq{ display:inline-flex; align-items:center; justify-content:center; min-width:20px; height:20px; border-radius:50%; background:var(--brand-light); color:var(--brand-mid); font-size:11px; font-weight:700; }
+.dcard-pipes{ margin-top:9px; display:flex; flex-wrap:wrap; gap:5px; font-size:12px; }
+.dcard-rows{ margin-top:10px; display:flex; flex-direction:column; gap:6px; }
+.dcard-row{ display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--muted); }
+.dcard-row .ti{ font-size:14px; flex-shrink:0; }
+.dcard-note{ color:#c07000; }
+.dcard-call{ margin-left:auto; color:var(--brand-mid); text-decoration:none; font-weight:600; display:inline-flex; align-items:center; gap:4px; }
+@media (max-width:700px){
+  .disp-view-table{ display:none !important; }
+  .disp-view-cards{ display:block; }
+}
 `;document.head.appendChild(s);})();
 </script>
 </head>
@@ -2697,7 +2714,7 @@ function renderDispatch() {
             </select>
           </div>
         </div>
-        <div style="overflow-x:auto"><table style="font-size:12px">
+        <div class="disp-view-table" style="overflow-x:auto"><table style="font-size:12px">
           <thead><tr><th>Customer</th><th>Phone</th><th>Pipes</th><th>Balance</th><th>Address</th><th>KM</th><th>Del. date</th><th>Notes</th></tr></thead>
           <tbody>${aOrders.map((o,si)=>`<tr>
             <td style="font-weight:600"><span style="display:inline-block;min-width:16px;color:var(--muted);font-size:11px">${si+1}.</span> ${esc(o.customer)}</td>
@@ -2709,6 +2726,18 @@ function renderDispatch() {
             <td style="font-size:12px;color:#c07000;max-width:160px">${o.notes?`<i class="ti ti-note" style="font-size:12px"></i> ${esc(o.notes)}`:'—'}</td>
           </tr>`).join('')}</tbody>
         </table></div>
+        <div class="disp-view-cards">${aOrders.map((o,si)=>`<div class="dcard">
+          <div class="dcard-top">
+            <div class="dcard-name"><span class="dcard-seq">${si+1}</span> ${esc(o.customer)}</div>
+            ${o.balance>0?`<span class="badge badge-amber">₹${fmt(o.balance)}</span>`:'<span class="badge badge-green">Paid</span>'}
+          </div>
+          <div class="dcard-pipes">${Object.entries(o.pipes||{}).filter(([,v])=>v>0).map(([k,v])=>`<span class="badge badge-gray">${v}× ${k}</span>`).join(' ')||'<span style="color:var(--muted)">No pipes</span>'}</div>
+          <div class="dcard-rows">
+            <div class="dcard-row"><i class="ti ti-map-pin"></i><span>${esc(o.address||'—')}${o.km?` · ~${o.km}km`:''}</span></div>
+            <div class="dcard-row"><i class="ti ti-calendar"></i><span>${fmtDate(o.deliveryDate)}</span>${o.phone?`<a href="tel:${esc(o.phone)}" class="dcard-call"><i class="ti ti-phone"></i> ${esc(o.phone)}</a>`:''}</div>
+            ${o.notes?`<div class="dcard-row dcard-note"><i class="ti ti-note"></i><span>${esc(o.notes)}</span></div>`:''}
+          </div>
+        </div>`).join('')}</div>
         <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           ${assigned?`<span style="font-size:12px;color:#555;display:flex;align-items:center;gap:4px">
             <i class="ti ti-check" style="color:#3b8a2a"></i> Assigned to <strong>${esc(assigned)}</strong>
