@@ -100,6 +100,24 @@
 [data-theme="dark"] input::placeholder,[data-theme="dark"] textarea::placeholder{ color:var(--muted-2); }
 .theme-toggle{ background:none; border:none; cursor:pointer; color:var(--muted); font-size:19px; padding:6px 8px; line-height:1; display:flex; align-items:center; }
 .theme-toggle:hover{ color:var(--brand); }
+/* ── UI polish (visual only, applies to both themes) ── */
+tbody tr{ transition:background .12s ease; }
+tbody tr:hover:not([style*="background"]) > td{ background:var(--brand-light); }
+.card{ transition:box-shadow .18s ease, transform .18s ease; }
+button,.btn-sm,.btn-primary,.quick-action-btn,.tab{ transition:background .15s ease,color .15s ease,box-shadow .15s ease,transform .06s ease; }
+button:active,.btn-sm:active,.btn-primary:active{ transform:translateY(1px); }
+.quick-action-btn:hover{ transform:translateY(-2px); box-shadow:var(--shadow); }
+/* sticky table headers where a vertical scroll container exists; opaque subtle-grey header (both themes) */
+table thead th{ position:sticky; top:0; z-index:3; background:var(--bg); }
+/* refined thin scrollbars */
+*::-webkit-scrollbar{ width:9px; height:9px; }
+*::-webkit-scrollbar-thumb{ background:var(--muted-2); border-radius:6px; }
+*::-webkit-scrollbar-thumb:hover{ background:var(--muted); }
+*::-webkit-scrollbar-track{ background:transparent; }
+/* clearer focus for accessibility */
+input:focus,select:focus,textarea:focus{ outline:2px solid var(--brand-mid); outline-offset:0; border-color:var(--brand-mid)!important; }
+/* keyboard-shortcut hint chip */
+.kbd{ display:inline-block; font-size:10px; font-family:monospace; background:var(--border-light); color:var(--muted); border:1px solid var(--border); border-radius:4px; padding:1px 5px; }
 * { box-sizing:border-box; margin:0; padding:0; }
 body { font-family:var(--font); font-size:14px; color:var(--neutral); background:var(--bg); min-height:100vh; -webkit-font-smoothing:antialiased; }
 #login-screen { display:none; align-items:center; justify-content:center; min-height:100vh; padding:1.5rem; background:linear-gradient(135deg,#0f172a 0%,#1e40af 60%,#3b82f6 100%); }
@@ -501,6 +519,24 @@ function toggleTheme(){
   applyTheme(next); localStorage.setItem('hpf_theme', next);
 }
 try { applyTheme(localStorage.getItem('hpf_theme')||'light'); } catch(e){}
+
+// ── Keyboard shortcuts (navigation/UX only — never writes data) ──
+document.addEventListener('keydown', e => {
+  const el = e.target || {}, tag = (el.tagName||'').toLowerCase();
+  const typing = tag==='input' || tag==='textarea' || tag==='select' || el.isContentEditable;
+  // Esc closes an open modal
+  if(e.key==='Escape'){
+    const mc=document.getElementById('modal-container');
+    if(mc && mc.innerHTML.trim()){ if(typeof closeModal==='function') closeModal(); e.preventDefault(); }
+    return;
+  }
+  if(typing) return;                       // never hijack keys while the user is typing
+  // "/" or Ctrl/Cmd+K → focus the page's search box
+  if((e.key==='/' && !e.ctrlKey && !e.metaKey) || ((e.ctrlKey||e.metaKey) && (e.key==='k'||e.key==='K'))){
+    const s=document.getElementById('order-search') || document.querySelector('input[placeholder*="Search"],input[placeholder*="search"]');
+    if(s){ s.focus(); s.select&&s.select(); e.preventDefault(); }
+  }
+});
 function esc(s)     { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 document.addEventListener('keydown', e => { if(e.key === 'Escape') closeModal(); });
 
