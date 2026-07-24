@@ -342,6 +342,24 @@ thead th{ font-weight:700; }
 .card > div[style*="overflow-x"]{ -webkit-overflow-scrolling:touch; }
 /* Unify stray accent link colour to the brand token (both themes) */
 a[style*="color:#1a6bc4"]{ color:var(--brand-mid)!important; }
+
+/* ── Orders: desktop table vs mobile cards ── */
+.ord-view-cards{ display:none; }
+.ocard{ background:var(--white); border:1px solid var(--border); border-radius:14px; padding:14px; margin-bottom:10px; box-shadow:var(--shadow-sm); }
+.ocard.overdue{ border-color:var(--danger-bd); }
+.ocard-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+.ocard-name{ font-weight:700; font-size:15.5px; letter-spacing:-.01em; }
+.ocard-sub{ font-size:12.5px; color:var(--muted); margin-top:2px; overflow:hidden; text-overflow:ellipsis; }
+.ocard-pipes{ margin-top:9px; display:flex; flex-wrap:wrap; gap:5px; }
+.ocard-meta{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin-top:11px; font-size:12.5px; color:var(--muted); }
+.ocard-phone{ color:var(--brand-mid); text-decoration:none; font-weight:600; }
+.ocard-paid{ display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); }
+.ocard-actions{ display:flex; flex-wrap:wrap; gap:7px; margin-top:13px; padding-top:11px; border-top:1px solid var(--border-light); }
+.ocard-actions .btn-sm{ min-height:36px; padding:6px 12px; }
+@media (max-width:700px){
+  .ord-view-table{ display:none !important; }
+  .ord-view-cards{ display:block; }
+}
 `;document.head.appendChild(s);})();
 </script>
 </head>
@@ -1628,8 +1646,33 @@ function renderOrderList(status) {
   if(!orders.length) { el.innerHTML=`<div class="card empty-state"><i class="ti ti-clipboard-list"></i>No ${status} orders</div>`; return; }
   renderOrderTable(orders, el, status==='all');
 }
+// Shared action buttons — used by BOTH the desktop table and the mobile card so handlers never drift
+function orderActionsHTML(o){
+  return `${o.status==='pending'?`<button class="btn-sm btn-success" onclick="setStatus('${o.id}','ready')">Ready</button> `:''}${o.status==='ready'?`<button class="btn-sm btn-primary" onclick="setStatus('${o.id}','delivered')">Delivered</button> `:''}${o.status==='ready'?`<button class="btn-sm" style="color:#e67e00;border-color:#e67e00" onclick="setStatus('${o.id}','pending')">↩ Pending</button> `:''}${o.status==='delivered'?`<button class="btn-sm" style="color:#e67e00;border-color:#e67e00" onclick="revertToReady('${o.id}')">↩ Ready</button> `:''}${Number(o.balance)>0?`<button class="btn-sm btn-success" onclick="openOrderPayModal('${o.id}')" title="Collect payment"><i class="ti ti-cash"></i></button> `:''}<button class="btn-sm" onclick="openOrderInvoice('${o.id}')" title="View bill / invoice"><i class="ti ti-receipt"></i></button> <button class="btn-sm" onclick="openOrderModal('${o.id}')">Edit</button> <button class="btn-sm" style="color:#25d366;border-color:#25d366" onclick="shareOrder('${o.id}')" title="Share via WhatsApp"><i class="ti ti-brand-whatsapp"></i></button> <button class="btn-sm btn-danger" onclick="delOrder('${o.id}')">Del</button>`;
+}
+// Mobile card for one order (premium single-column layout; same actions as the table)
+function orderCardHTML(o){
+  const pipes = Object.entries(o.pipes||{}).filter(([,v])=>v>0).map(([k,v])=>`<span class="badge badge-gray">${v}× ${k}</span>`).join(' ');
+  const stCls = o.status==='pending'?'badge-amber':o.status==='ready'?'badge-blue':'badge-green';
+  return `<div class="ocard${isOverdue(o)?' overdue':''}">
+    <div class="ocard-top">
+      <div style="min-width:0"><div class="ocard-name">${esc(o.customer)}</div>
+        <div class="ocard-sub">${esc(o.address||'—')}${o.km?' · ~'+o.km+'km':''}</div></div>
+      <span class="badge ${stCls}">${esc(o.status||'pending')}</span>
+    </div>
+    ${pipes?`<div class="ocard-pipes">${pipes}</div>`:''}
+    <div class="ocard-meta">
+      ${o.phone?`<a href="tel:${esc(o.phone)}" class="ocard-phone"><i class="ti ti-phone"></i> ${esc(o.phone)}</a>`:''}
+      ${o.deliveryDate?`<span><i class="ti ti-calendar-event"></i> ${fmtDate(o.deliveryDate)}</span>`:''}
+      <span class="badge ${Number(o.balance)>0?'badge-amber':'badge-green'}">${Number(o.balance)>0?'₹'+fmt(o.balance)+' due':'Paid'}</span>
+      ${o.route?`<span class="badge badge-blue">${esc(o.route)}</span>`:''}
+      <label class="ocard-paid"><input type="checkbox" class="pay-tick" ${o.paid?'checked':''} onchange="togglePaid('${o.id}',this.checked)"> cleared</label>
+    </div>
+    <div class="ocard-actions">${orderActionsHTML(o)}</div>
+  </div>`;
+}
 function renderOrderTable(orders, el, showStatus) {
-  el.innerHTML = `<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto">
+  const tableHTML = `<div class="card ord-view-table" style="padding:0;overflow:hidden"><div style="overflow-x:auto">
     <table><thead><tr>
       <th>Date</th>${showStatus?'<th>Status</th>':''}<th>Customer</th><th>Phone</th><th>Pipes</th>
       <th>Advance</th><th>Balance</th><th>Pay mode</th><th style="min-width:80px">Paid ✓</th><th>Del. date</th><th>Address</th><th>Route</th><th>KM</th><th>Notes</th><th>Actions</th>
@@ -1649,19 +1692,11 @@ function renderOrderTable(orders, el, showStatus) {
         <td style="font-size:12px;white-space:nowrap">${o.route?`<span class="badge badge-blue">${esc(o.route)}</span>`:'—'}</td>
         <td>${o.km?`<span class="badge badge-blue">~${o.km}km</span>`:'—'}</td>
         <td style="min-width:120px;font-size:12px;color:#555">${esc(o.notes||'—')}</td>
-        <td style="white-space:nowrap">
-          ${o.status==='pending'?`<button class="btn-sm btn-success" onclick="setStatus('${o.id}','ready')">Ready</button> `:''}
-          ${o.status==='ready'?`<button class="btn-sm btn-primary" onclick="setStatus('${o.id}','delivered')">Delivered</button> `:''}
-          ${o.status==='ready'?`<button class="btn-sm" style="color:#e67e00;border-color:#e67e00" onclick="setStatus('${o.id}','pending')">↩ Pending</button> `:''}
-          ${o.status==='delivered'?`<button class="btn-sm" style="color:#e67e00;border-color:#e67e00" onclick="revertToReady('${o.id}')">↩ Ready</button> `:''}
-          ${Number(o.balance)>0?`<button class="btn-sm btn-success" onclick="openOrderPayModal('${o.id}')" title="Collect payment"><i class="ti ti-cash"></i></button> `:''}
-          <button class="btn-sm" onclick="openOrderInvoice('${o.id}')" title="View bill / invoice"><i class="ti ti-receipt"></i></button>
-          <button class="btn-sm" onclick="openOrderModal('${o.id}')">Edit</button>
-          <button class="btn-sm" style="color:#25d366;border-color:#25d366" onclick="shareOrder('${o.id}')" title="Share via WhatsApp"><i class="ti ti-brand-whatsapp"></i></button>
-          <button class="btn-sm btn-danger" onclick="delOrder('${o.id}')">Del</button>
-        </td>
+        <td style="white-space:nowrap">${orderActionsHTML(o)}</td>
       </tr>`).join('')}
     </tbody></table></div></div>`;
+  const cardsHTML = `<div class="ord-view-cards">${orders.map(o=>orderCardHTML(o)).join('')}</div>`;
+  el.innerHTML = tableHTML + cardsHTML;
 }
 async function setStatus(id, status) {
   if(status === 'delivered') {
