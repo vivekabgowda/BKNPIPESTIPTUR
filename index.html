@@ -70,6 +70,36 @@
   --shadow-lg:    0 20px 40px rgba(0,0,0,0.12),0 8px 16px rgba(0,0,0,0.06);
   --font:         'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
 }
+/* ── Dark theme (opt-in; ALL rules scoped to [data-theme="dark"] so light mode is byte-for-byte unchanged) ── */
+:root[data-theme="dark"]{
+  --brand:#60a5fa; --brand-dark:#93c5fd; --brand-mid:#3b82f6; --brand-light:#1e293b; --brand-border:#334155;
+  --success:#34d399; --success-bg:#0e2a20; --success-bd:#065f46;
+  --danger:#f87171;  --danger-bg:#2c1515;  --danger-bd:#7f1d1d;
+  --warning:#fbbf24; --warning-bg:#2a2510; --warning-bd:#854d0e;
+  --neutral:#e5e9f0; --neutral-2:#f1f5f9;
+  --muted:#9aa7bd;   --muted-2:#7c8aa3;
+  --border:#2b3648;  --border-light:#222c3d;
+  --bg:#141b2b;      --bg-sidebar:#0b1120;  --bg-sidebar-2:#111a2e;
+  --white:#1b2436;
+  --shadow-sm:0 1px 2px rgba(0,0,0,0.4); --shadow:0 4px 8px rgba(0,0,0,0.45); --shadow-lg:0 20px 40px rgba(0,0,0,0.6);
+}
+/* Remap the few hard-coded inline light colours — dark-only, so light mode never sees these rules */
+[data-theme="dark"] [style*="background:#fff;"],
+[data-theme="dark"] [style$="background:#fff"],
+[data-theme="dark"] [style*="background:#ffffff"],
+[data-theme="dark"] [style*="background:#fafafa"],
+[data-theme="dark"] [style*="background:#f8fafc"],
+[data-theme="dark"] [style*="background:#f8f8f5"],
+[data-theme="dark"] [style*="background:#f8f9fc"],
+[data-theme="dark"] [style*="background:#f0f4f8"]{ background:var(--white)!important; }
+[data-theme="dark"] [style*="#f0f0ec"]{ border-color:var(--border)!important; }
+[data-theme="dark"] [style*="color:#888"]{ color:var(--muted)!important; }
+[data-theme="dark"] [style*="color:#555"]{ color:var(--muted-2)!important; }
+[data-theme="dark"] [style*="color:#333"],[data-theme="dark"] [style*="color:#0f172a"]{ color:var(--neutral)!important; }
+[data-theme="dark"] input,[data-theme="dark"] select,[data-theme="dark"] textarea{ background:var(--bg)!important; color:var(--neutral)!important; border-color:var(--border)!important; }
+[data-theme="dark"] input::placeholder,[data-theme="dark"] textarea::placeholder{ color:var(--muted-2); }
+.theme-toggle{ background:none; border:none; cursor:pointer; color:var(--muted); font-size:19px; padding:6px 8px; line-height:1; display:flex; align-items:center; }
+.theme-toggle:hover{ color:var(--brand); }
 * { box-sizing:border-box; margin:0; padding:0; }
 body { font-family:var(--font); font-size:14px; color:var(--neutral); background:var(--bg); min-height:100vh; -webkit-font-smoothing:antialiased; }
 #login-screen { display:none; align-items:center; justify-content:center; min-height:100vh; padding:1.5rem; background:linear-gradient(135deg,#0f172a 0%,#1e40af 60%,#3b82f6 100%); }
@@ -330,7 +360,10 @@ service cloud.firestore {
           <button class="mobile-menu-btn" onclick="openSidebar()"><i class="ti ti-menu-2" style="font-size:20px"></i></button>
           <h2 id="page-title">Dashboard</h2>
         </div>
-        <div id="topbar-action"></div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode"><i class="ti ti-moon" id="theme-icon"></i></button>
+          <div id="topbar-action"></div>
+        </div>
       </div>
       <div class="content" id="content"></div>
     </div>
@@ -457,6 +490,17 @@ function closeModal(){ document.getElementById('modal-container').innerHTML=''; 
 function openSidebar()  { document.getElementById('sidebar').classList.add('open'); document.getElementById('overlay-bg').classList.add('show'); }
 function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('overlay-bg').classList.remove('show'); }
 function col(name)  { return firestoreDb.collection(name); }
+
+// ── Dark mode (visual only; persists in localStorage; default = light) ──
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme', t==='dark'?'dark':'light');
+  const ic=document.getElementById('theme-icon'); if(ic) ic.className = (t==='dark')?'ti ti-sun':'ti ti-moon';
+}
+function toggleTheme(){
+  const next = document.documentElement.getAttribute('data-theme')==='dark' ? 'light' : 'dark';
+  applyTheme(next); localStorage.setItem('hpf_theme', next);
+}
+try { applyTheme(localStorage.getItem('hpf_theme')||'light'); } catch(e){}
 function esc(s)     { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 document.addEventListener('keydown', e => { if(e.key === 'Escape') closeModal(); });
 
