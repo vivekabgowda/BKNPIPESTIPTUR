@@ -416,6 +416,7 @@ const PAGES = [
   { id:'planning',   label:'Planning',   icon:'ti-calendar-stats' },
   { id:'dispatch',   label:'Dispatch',   icon:'ti-truck' },
   { id:'materials',  label:'Materials',  icon:'ti-package' },
+  { id:'inventory',  label:'Inventory',  icon:'ti-stack-2' },
   { id:'suppliers',  label:'Suppliers',  icon:'ti-receipt' },
   { id:'expenses',   label:'Expenses',   icon:'ti-wallet' },
   { id:'profit',     label:'Profit',     icon:'ti-trending-up' },
@@ -812,7 +813,7 @@ function goto(page, silent=false) {
   bnActive(page);
   document.getElementById('page-title').textContent = PAGES.find(p=>p.id===page).label;
   document.getElementById('topbar-action').innerHTML = '';
-  ({dashboard:renderDashboard,orders:renderOrders,production:renderProduction,planning:renderPlanning,dispatch:renderDispatch,materials:renderMaterials,suppliers:renderSuppliers,expenses:renderExpenses,profit:renderProfit,gstbilling:renderGSTBilling,staff:renderStaff,settings:renderSettings})[page]();
+  ({dashboard:renderDashboard,orders:renderOrders,production:renderProduction,planning:renderPlanning,dispatch:renderDispatch,materials:renderMaterials,inventory:renderInventory,suppliers:renderSuppliers,expenses:renderExpenses,profit:renderProfit,gstbilling:renderGSTBilling,staff:renderStaff,settings:renderSettings})[page]();
 }
 
 // ── EXPORT TO EXCEL ───────────────────────────────────────────────────────────
@@ -2339,6 +2340,136 @@ async function savePlanTarget(){
 async function delPlanTarget(id){
   if(!confirm('Delete this production target? (Only removes the plan — no orders/production affected)')) return;
   try{ await col('production_targets').doc(id).delete(); }catch(e){ alert('Delete failed: '+e.message); }
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INVENTORY REPORTS  (added feature — 100% READ-ONLY)
+// Derives stock movement ledgers from existing collections using the SAME inputs
+// as calcPipeStock()/calcMaterialStock(), so balances match the existing stock
+// exactly. No writes, no new collection, no change to stock logic.
+// ══════════════════════════════════════════════════════════════════════════════
+let invItem = '';   // selected item for the movement ledger: 'pipe:<type>' or 'mat:<id>'
+function invMatMeta(){ return [...MAT_SINGLE, ...STEEL_WIRE_SIZES.map(sz=>({id:sz.id,label:'Wire '+sz.label,unit:sz.unit}))]; }
+
+// Pipe movement ledger — same sources as calcPipeStock (opening + produced − rejected − delivered)
+function invPipeMovements(t){
+  const rows=[];
+  const opening = Number((cache.pipe_opening||{})[t])||0;
+  if(opening) rows.push({date:'', label:'Opening stock', q:opening});
+  (cache.production||[]).forEach(p=>{
+    const made=Number(p.pipes&&p.pipes[t])||0; if(made) rows.push({date:p.date||'', label:'Produced', q:made});
+    const rej =Number(p.rejects&&p.rejects[t])||0; if(rej) rows.push({date:p.date||'', label:'Rejected', q:-rej});
+  });
+  (cache.orders||[]).filter(o=>o.status==='delivered').forEach(o=>{
+    const d=Number(o.pipes&&o.pipes[t])||0; if(d) rows.push({date:o.deliveryDate||o.orderDate||'', label:'Delivered — '+(o.customer||'?'), q:-d});
+  });
+  rows.sort((a,b)=>(a.date||'0').localeCompare(b.date||'0'));
+  let bal=0; rows.forEach(r=>{ bal+=r.q; r.bal=bal; });
+  return rows;
+}
+// Material movement ledger — same sources as calcMaterialStock (opening + received − used)
+function invMatMovements(id){
+  const opening=cache.mat_opening||{}; const from=opening._from_date||'';
+  const rates=cache.consume_rates||{}; const isWire=STEEL_WIRE_SIZES.some(sz=>sz.id===id);
+  const rows=[];
+  const op=Number(opening[id])||0; if(op) rows.push({date:from||'', label:'Opening stock', q:op});
+  (cache.materials||[]).filter(m=>!from||(m.date||'')>=from).forEach(m=>{
+    let q=0;
+    if(isWire){ if(m.material==='steel_wire') q=Number(m.sizes&&m.sizes[id]&&m.sizes[id].qty)||0; }
+    else if(m.material===id){ q=Number(m.qty)||0; }
+    if(q) rows.push({date:m.date||'', label:'Purchased'+(m.supplier?' — '+m.supplier:''), q});
+  });
+  (cache.production||[]).filter(p=>!from||(p.date||'')>=from).forEach(p=>{
+    let used=0; PIPE_TYPES.forEach(t=>{ const r=rates[t]&&rates[t][id]; if(r) used+=(Number(p.pipes&&p.pipes[t])||0)*Number(r); });
+    if(used) rows.push({date:p.date||'', label:'Used in production', q:-Math.round(used*100)/100});
+  });
+  rows.sort((a,b)=>(a.date||'0').localeCompare(b.date||'0'));
+  let bal=0; rows.forEach(r=>{ bal+=r.q; r.bal=Math.round(bal*100)/100; });
+  return rows;
+}
+// Monthly consumption of one material (last 6 months, read-only estimate)
+function invMatConsumption(id){
+  const now=new Date(today()); const months=[]; const by={};
+  for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); const k=d.toISOString().slice(0,7); months.push(k); by[k]=0; }
+  const rates=cache.consume_rates||{};
+  (cache.production||[]).forEach(p=>{ const m=(p.date||'').slice(0,7); if(!(m in by))return; PIPE_TYPES.forEach(t=>{ const r=rates[t]&&rates[t][id]; if(r) by[m]+=(Number(p.pipes&&p.pipes[t])||0)*Number(r); }); });
+  return {months, by};
+}
+
+function renderInventory(){
+  if(!invItem) invItem = 'pipe:'+PIPE_TYPES[0];
+  const pipeStock = calcPipeStock();          // read-only reuse of existing logic
+  const matStock  = calcMaterialStock();      // read-only reuse of existing logic
+  const matMeta   = invMatMeta();
+  const lowPipes  = PIPE_TYPES.filter(t=>pipeStock[t].available<=pipeStock[t].threshold);
+  const lowMats   = matMeta.filter(m=>matStock[m.id].threshold>0 && matStock[m.id].inStock<=matStock[m.id].threshold);
+
+  const [kind,key] = invItem.split(/:(.+)/);
+  const moves = kind==='pipe' ? invPipeMovements(key) : invMatMovements(key);
+  const unit  = kind==='mat' ? (matMeta.find(m=>m.id===key)||{}).unit||'' : 'pipes';
+
+  document.getElementById('content').innerHTML = `
+    <div class="alert alert-info" style="margin-bottom:1rem"><i class="ti ti-info-circle"></i> Inventory reports are read-only. They derive from your production, orders &amp; material records — nothing here changes stock or any data.</div>
+
+    ${(lowPipes.length||lowMats.length)?`<div class="alert" style="background:var(--warning-bg);color:var(--warning);border:1px solid var(--warning-bd)">
+      <i class="ti ti-alert-triangle"></i><div><strong>Low stock:</strong>
+      ${lowPipes.map(t=>`${esc(t)} (${pipeStock[t].available})`).concat(lowMats.map(m=>`${esc(m.label)} (${fmt(matStock[m.id].inStock)} ${m.unit})`)).join(' · ')}</div></div>`:
+      `<div class="alert" style="background:var(--success-bg);color:var(--success);border:1px solid var(--success-bd)"><i class="ti ti-circle-check"></i> All stock above thresholds</div>`}
+
+    <!-- Pipe stock report -->
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:12px">
+      <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)">Pipe stock report</div>
+      <div style="overflow-x:auto"><table style="font-size:12px"><thead><tr><th>Pipe</th><th style="text-align:right">Opening</th><th style="text-align:right">Produced</th><th style="text-align:right">Rejected</th><th style="text-align:right">Delivered</th><th style="text-align:right">In stock</th><th style="text-align:right">Reserved</th><th style="text-align:right">Available</th></tr></thead>
+        <tbody>${PIPE_TYPES.map(t=>{const s=pipeStock[t];const low=s.available<=s.threshold;return `<tr>
+          <td style="font-weight:600">${esc(t)}</td>
+          <td style="text-align:right">${fmt(s.openQty)}</td>
+          <td style="text-align:right;color:var(--success)">+${fmt(s.produced-s.openQty)}</td>
+          <td style="text-align:right;color:var(--danger)">${s.rejected?'-'+fmt(s.rejected):'0'}</td>
+          <td style="text-align:right;color:var(--danger)">${s.delivered?'-'+fmt(s.delivered):'0'}</td>
+          <td style="text-align:right;font-weight:600">${fmt(s.inStock)}</td>
+          <td style="text-align:right;color:var(--muted)">${fmt(s.reserved)}</td>
+          <td style="text-align:right;font-weight:700;color:${low?'var(--danger)':'var(--success)'}">${fmt(s.available)}</td>
+        </tr>`;}).join('')}</tbody></table></div>
+    </div>
+
+    <!-- Material stock report -->
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:12px">
+      <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)">Material stock report</div>
+      <div style="overflow-x:auto"><table style="font-size:12px"><thead><tr><th>Material</th><th style="text-align:right">Opening</th><th style="text-align:right">Received</th><th style="text-align:right">Used (est.)</th><th style="text-align:right">In stock</th></tr></thead>
+        <tbody>${matMeta.map(m=>{const s=matStock[m.id];const low=s.threshold>0&&s.inStock<=s.threshold;return `<tr>
+          <td style="font-weight:600">${esc(m.label)}</td>
+          <td style="text-align:right">${fmt(s.openQty)}</td>
+          <td style="text-align:right;color:var(--success)">+${fmt(s.received)}</td>
+          <td style="text-align:right;color:var(--danger)">${s.used?'-'+fmt(Math.round(s.used*100)/100):'0'}</td>
+          <td style="text-align:right;font-weight:700;color:${low?'var(--danger)':s.inStock<0?'var(--danger)':'var(--text)'}">${fmt(Math.round(s.inStock*100)/100)} ${esc(m.unit)}</td>
+        </tr>`;}).join('')}</tbody></table></div>
+      <div style="padding:8px 14px;font-size:11px;color:var(--muted);border-top:1px solid var(--border-light)">"Used" is an estimate = pipes produced × consumption rates (Materials → Rates). Same figure the existing stock screen uses.</div>
+    </div>
+
+    <!-- Movement ledger -->
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:12px">
+      <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        Stock movement history
+        <select onchange="invItem=this.value;renderInventory()" style="font-size:13px;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-family:var(--font)">
+          <optgroup label="Pipes">${PIPE_TYPES.map(t=>`<option value="pipe:${esc(t)}" ${invItem==='pipe:'+t?'selected':''}>${esc(t)}</option>`).join('')}</optgroup>
+          <optgroup label="Materials">${matMeta.map(m=>`<option value="mat:${esc(m.id)}" ${invItem==='mat:'+m.id?'selected':''}>${esc(m.label)}</option>`).join('')}</optgroup>
+        </select>
+        <span style="font-size:12px;color:var(--muted);margin-left:auto">${moves.length} movements</span>
+      </div>
+      <div style="overflow-x:auto"><table style="font-size:12px"><thead><tr><th>Date</th><th>Movement</th><th style="text-align:right">Qty</th><th style="text-align:right">Balance</th></tr></thead>
+        <tbody>${moves.length?moves.map(r=>`<tr>
+          <td style="white-space:nowrap;color:var(--muted)">${r.date?fmtDate(r.date):'—'}</td>
+          <td>${esc(r.label)}</td>
+          <td style="text-align:right;font-weight:600;color:${r.q>=0?'var(--success)':'var(--danger)'}">${r.q>=0?'+':''}${fmt(r.q)}</td>
+          <td style="text-align:right;font-weight:700">${fmt(r.bal)} ${esc(unit==='pipes'?'':unit)}</td>
+        </tr>`).join(''):`<tr><td colspan="4"><div class="empty-state" style="padding:1.5rem">No movements yet</div></td></tr>`}</tbody></table></div>
+    </div>
+
+    <!-- Consumption trend (materials only) -->
+    ${kind==='mat'?(()=>{ const c=invMatConsumption(key); return `<div class="card">
+      <div class="card-title">Consumption trend — ${esc((matMeta.find(m=>m.id===key)||{}).label||key)} <span style="font-size:11px;font-weight:400;color:var(--muted)">last 6 months (${esc(unit)})</span></div>
+      ${dashBars(c.months.map(m=>({l:dashMonthLabel(m),v:Math.round(c.by[m])})),{color:'#ea580c'})}
+    </div>`;})():''}`;
 }
 
 // ── DISPATCH ──────────────────────────────────────────────────────────────────
