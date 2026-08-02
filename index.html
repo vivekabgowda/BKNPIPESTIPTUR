@@ -753,6 +753,10 @@ function printProduction() {
   const grandTotal = PIPE_TYPES.reduce((s,t)=>s+totals[t],0);
   const rates = cache.piecerate || {};
   const totalWages = PIPE_TYPES.reduce((s,t)=>s+(totals[t]||0)*(rates[t]||0),0);
+  const sundayKarchi = (cache.labour_karchi||[])
+    .filter(k=>k.date && (k.type||'karchi')==='karchi' && inRange(k.date,fd,td2))
+    .reduce((s,k)=>s+(Number(k.amount)||0),0);
+  const netPayable = totalWages - sundayKarchi;
   const p = cache.gst_profile||{};
 
   const summaryRows = PIPE_TYPES.filter(t=>totals[t]>0).map(t=>
@@ -798,8 +802,14 @@ function printProduction() {
     <h3>Piecework Salary Calculator</h3>
     <table><thead><tr><th>Pipe Type</th><th style="text-align:center">Qty Produced</th><th style="text-align:center">Rate / pipe (₹)</th><th style="text-align:right">Amount (₹)</th></tr></thead>
       <tbody>${salaryRows}</tbody>
-      <tfoot><tr style="background:#f0fdf4"><td colspan="3" style="text-align:right;font-weight:700">Total Wages for Period:</td>
-        <td style="text-align:right;font-weight:700;color:#15803d">₹${fmt(totalWages)}</td></tr></tfoot></table>
+      <tfoot>
+        <tr style="background:#f8fafc"><td colspan="3" style="text-align:right;font-weight:700">Total Wages for Period:</td>
+          <td style="text-align:right;font-weight:700;color:#15803d">₹${fmt(totalWages)}</td></tr>
+        <tr style="background:#f8fafc"><td colspan="3" style="text-align:right;color:#b45309">Less: Sunday Karchi paid (this period):</td>
+          <td style="text-align:right;color:#b45309;font-weight:600">${sundayKarchi>0?'− ₹'+fmt(sundayKarchi):'₹0'}</td></tr>
+        <tr style="background:#f0fdf4"><td colspan="3" style="text-align:right;font-weight:700">Net Payable (to be paid):</td>
+          <td style="text-align:right;font-weight:700;color:${netPayable>=0?'#15803d':'#b91c1c'}">₹${fmt(netPayable)}</td></tr>
+      </tfoot></table>
 
     <h3>Daily Production Log</h3>
     <table><thead><tr><th>Date</th>${PIPE_TYPES.map(t=>`<th style="text-align:center;font-size:10px">${esc(t)}</th>`).join('')}<th style="text-align:center">Total</th><th style="text-align:center">Rejects</th></tr></thead>
@@ -2223,6 +2233,12 @@ function renderProduction(fromDate, toDate) {
   const grandTotal = PIPE_TYPES.reduce((s,t)=>s+totals[t],0);
 
   const rates = cache.piecerate || {};
+  const totalWages = PIPE_TYPES.reduce((s,t)=>s+(totals[t]||0)*(rates[t]||0),0);
+  // Sunday Karchi already paid to the Jharkhand labour in this same period (Staff → Labour data)
+  const sundayKarchi = (cache.labour_karchi||[])
+    .filter(k=>k.date && (k.type||'karchi')==='karchi' && inRange(k.date,fd,td2))
+    .reduce((s,k)=>s+(Number(k.amount)||0),0);
+  const netPayable = totalWages - sundayKarchi;
 
   const logPanel = `
     <div class="card">
@@ -2279,13 +2295,22 @@ function renderProduction(fromDate, toDate) {
             </tr>`;
           }).join('')}
         </tbody>
-        <tfoot><tr style="background:#f8f8f5">
-          <td colspan="3" style="font-weight:700;text-align:right;padding-right:12px">Total Wages for Period:</td>
-          <td style="font-weight:700;font-size:15px;color:#3b8a2a;text-align:right">
-            ₹${fmt(PIPE_TYPES.reduce((s,t)=>s+(totals[t]||0)*(rates[t]||0),0))}
-          </td>
-        </tr></tfoot>
+        <tfoot>
+          <tr style="background:#f8f8f5">
+            <td colspan="3" style="font-weight:700;text-align:right;padding-right:12px">Total Wages for Period:</td>
+            <td style="font-weight:700;font-size:15px;color:#3b8a2a;text-align:right">₹${fmt(totalWages)}</td>
+          </tr>
+          <tr style="background:#f8f8f5">
+            <td colspan="3" style="text-align:right;padding-right:12px;color:#b45309">Less: Sunday Karchi paid (this period):</td>
+            <td style="text-align:right;color:#b45309;font-weight:600">${sundayKarchi>0?'− ₹'+fmt(sundayKarchi):'₹0'}</td>
+          </tr>
+          <tr style="background:#eef7ee">
+            <td colspan="3" style="font-weight:700;text-align:right;padding-right:12px">Net Payable (to be paid):</td>
+            <td style="font-weight:700;font-size:16px;color:${netPayable>=0?'#15803d':'#b91c1c'};text-align:right">₹${fmt(netPayable)}</td>
+          </tr>
+        </tfoot>
       </table></div>
+      <div style="margin-top:8px;font-size:11px;color:#888">Sunday Karchi is pulled from Staff → Labour (Jharkhand labour) for the same dates. Record it there via “+ Record payment”.</div>
     </div>
 
     <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto">
