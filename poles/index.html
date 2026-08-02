@@ -182,7 +182,7 @@ const PAGES = [
   { id:'dashboard', label:'Dashboard', icon:'ti-layout-dashboard' },
   { id:'production',label:'Production',icon:'ti-tools' },
   { id:'sales',     label:'Sales',     icon:'ti-clipboard-list' },
-  { id:'materials', label:'Materials', icon:'ti-package' },
+  { id:'materials', label:'Purchases', icon:'ti-shopping-cart' },
   { id:'advances',  label:'Advances',  icon:'ti-wallet' },
   { id:'gstbilling',label:'GST Bills', icon:'ti-file-invoice' },
   { id:'settings',  label:'Settings',  icon:'ti-adjustments-horizontal' },
@@ -197,6 +197,8 @@ let listeners = [];
 let salesTab = 'orders';
 let salesRange = 'all';        // all | month | lastmonth | year | custom
 let salesFrom = '', salesTo = '';   // used when salesRange==='custom' (YYYY-MM-DD)
+let prodRange = 'all', prodFrom = '', prodTo = '';   // Production timeframe filter
+let purRange  = 'all', purFrom  = '', purTo  = '';   // Purchases timeframe filter
 let advTab = 'labour';
 let advMonth = ''; // '' = all months, else 'YYYY-MM'
 let gstFromDate = '', gstToDate = '', gstInvoiceFilter = '';
@@ -362,15 +364,25 @@ function renderDashboard(){
 }
 
 // ── PRODUCTION ───────────────────────────────────────────────────────────────
+function setProdRange(v){ prodRange=v; renderProduction(); }
 function renderProduction(){
   document.getElementById('topbar-action').innerHTML = `<button class="btn-primary" onclick="openProdModal()">+ Log production</button>`;
-  const list = [...cache.production].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  const mon = today().slice(0,7);
-  const monTot = {}; POLE_TYPES.forEach(t=>monTot[t]=0);
-  list.filter(p=>(p.date||'').startsWith(mon)).forEach(p=>POLE_TYPES.forEach(t=>monTot[t]+=(Number(p.poles&&p.poles[t])||0)));
+  const b = rangeBounds(prodRange, prodFrom, prodTo);
+  const list = [...cache.production]
+    .filter(p=>{ const d=p.date||''; return d && d>=b.from && d<=b.to; })
+    .sort((a,b2)=>(b2.date||'').localeCompare(a.date||''));
+  const rangeTot = {}; POLE_TYPES.forEach(t=>rangeTot[t]=0);
+  list.forEach(p=>POLE_TYPES.forEach(t=>rangeTot[t]+=(Number(p.poles&&p.poles[t])||0)));
+  const grandTot = POLE_TYPES.reduce((s,t)=>s+rangeTot[t],0);
+  const customBar = `<span style="display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)">
+      <input type="date" value="${prodFrom}" onchange="prodFrom=this.value;renderProduction()" style="font-size:12px;padding:4px 6px">
+      <span>to</span>
+      <input type="date" value="${prodTo}" onchange="prodTo=this.value;renderProduction()" style="font-size:12px;padding:4px 6px"></span>`;
   document.getElementById('content').innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:1rem">
-      ${POLE_TYPES.map(t=>`<div class="stat-card"><div class="stat-label">${esc(t)} — this month</div><div class="stat-value">${fmt(monTot[t])}</div></div>`).join('')}
+    ${rangeBarHTML(prodRange,'setProdRange',customBar)}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1rem">
+      ${POLE_TYPES.map(t=>`<div class="stat-card"><div class="stat-label">${esc(t)} — ${esc(b.label)}</div><div class="stat-value">${fmt(rangeTot[t])}</div></div>`).join('')}
+      <div class="stat-card"><div class="stat-label">Total poles</div><div class="stat-value" style="color:var(--brand-mid)">${fmt(grandTot)}</div><div style="font-size:11px;color:var(--muted)">${list.length} log${list.length===1?'':'s'}</div></div>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
       ${list.length?`<div style="overflow-x:auto"><table>
@@ -383,7 +395,7 @@ function renderProduction(){
             <button class="btn-sm" onclick="openProdModal('${p.id}')">Edit</button>
             <button class="btn-sm btn-danger" onclick="delProd('${p.id}')">Del</button>
           </td>
-        </tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-tools"></i>No production logged yet</div>`}
+        </tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-tools"></i>${prodRange==='all'?'No production logged yet':'No production in '+esc(b.label.toLowerCase())}</div>`}
     </div>`;
 }
 function openProdModal(id){
@@ -480,16 +492,26 @@ function remindBalance(orderId){
   const firstPhone = (o.phone||'').split(',')[0].replace(/\D/g,'');
   window.open(`https://wa.me/91${firstPhone}?text=${encodeURIComponent(text)}`, '_blank');
 }
-function salesRangeBounds(){
+// Generic timeframe bounds, shared by Sales / Production / Purchases filters.
+function rangeBounds(range, from, to){
   const t = today(), ym = t.slice(0,7), y = t.slice(0,4);
-  if(salesRange==='month')     return { from: ym+'-01', to: monthEnd(ym), label:'This month' };
-  if(salesRange==='lastmonth'){ const [yy,mm]=ym.split('-').map(Number); const d=new Date(yy,mm-2,1);
+  if(range==='month')     return { from: ym+'-01', to: monthEnd(ym), label:'This month' };
+  if(range==='lastmonth'){ const [yy,mm]=ym.split('-').map(Number); const d=new Date(yy,mm-2,1);
     const lym=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
     return { from: lym+'-01', to: monthEnd(lym), label:'Last month' }; }
-  if(salesRange==='year')      return { from: y+'-01-01', to: y+'-12-31', label:'This year ('+y+')' };
-  if(salesRange==='custom')    return { from: salesFrom||'0000-01-01', to: salesTo||'9999-12-31', label:'Custom range' };
+  if(range==='year')      return { from: y+'-01-01', to: y+'-12-31', label:'This year ('+y+')' };
+  if(range==='custom')    return { from: from||'0000-01-01', to: to||'9999-12-31', label:'Custom range' };
   return { from:'0000-01-01', to:'9999-12-31', label:'All time' };
 }
+// Reusable timeframe button bar. `setter` is a JS expression prefix called with the range value.
+function rangeBarHTML(cur, setterCall, custom){
+  const R=[['all','All time'],['month','This month'],['lastmonth','Last month'],['year','This year'],['custom','Custom']];
+  return `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px">
+    ${R.map(([v,l])=>`<button class="tab ${cur===v?'active':''}" style="padding:6px 12px;font-size:13px" onclick="${setterCall}('${v}')">${l}</button>`).join('')}
+    ${cur==='custom'?custom:''}
+  </div>`;
+}
+function salesRangeBounds(){ return rangeBounds(salesRange, salesFrom, salesTo); }
 function renderOrdersTab(){
   const b = salesRangeBounds();
   const list = [...cache.orders]
@@ -801,91 +823,74 @@ async function savePayment(id){
 }
 
 // ── MATERIALS ────────────────────────────────────────────────────────────────
+// Human-readable description for a purchase row. New rows store `note`; older
+// material-delivery rows are shown by their note, falling back to their material
+// name + qty so nothing already recorded is lost from view.
+function purchaseDesc(x){
+  if(x.note && x.note.trim()) return x.note.trim();
+  const m = MATERIALS.find(mm=>mm.id===x.material);
+  if(m) return m.label + (x.qty?` (${fmt(x.qty)} ${m.unit})`:'');
+  return x.material || '—';
+}
+function setPurRange(v){ purRange=v; renderMaterials(); }
 function renderMaterials(){
-  document.getElementById('topbar-action').innerHTML = `<button class="btn-primary" onclick="openMatModal()">+ Add delivery</button>`;
-  const list = [...cache.materials].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  const mon = today().slice(0,7);
-  const monTotals = MATERIALS.map(m=>{
-    const rows = list.filter(x=>x.material===m.id&&(x.date||'').startsWith(mon));
-    return { ...m, qty: rows.reduce((s,x)=>s+(Number(x.qty)||0),0), amt: rows.reduce((s,x)=>s+(Number(x.amount)||0),0) };
-  });
+  document.getElementById('topbar-action').innerHTML = `<button class="btn-primary" onclick="openMatModal()">+ Add purchase</button>`;
+  const b = rangeBounds(purRange, purFrom, purTo);
+  const list = [...cache.materials]
+    .filter(x=>{ const d=x.date||''; return d && d>=b.from && d<=b.to; })
+    .sort((a,b2)=>(b2.date||'').localeCompare(a.date||''));
+  const total = list.reduce((s,x)=>s+(Number(x.amount)||0),0);
+  const customBar = `<span style="display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)">
+      <input type="date" value="${purFrom}" onchange="purFrom=this.value;renderMaterials()" style="font-size:12px;padding:4px 6px">
+      <span>to</span>
+      <input type="date" value="${purTo}" onchange="purTo=this.value;renderMaterials()" style="font-size:12px;padding:4px 6px"></span>`;
   document.getElementById('content').innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1rem">
-      ${monTotals.map(m=>`<div class="stat-card"><div class="stat-label">${esc(m.label)} — this month</div>
-        <div class="stat-value" style="font-size:16px">${fmt(m.qty)} <span style="font-size:11px;font-weight:500;color:var(--muted)">${m.unit}</span></div>
-        <div style="font-size:11px;color:var(--muted)">₹${fmt(m.amt)}</div></div>`).join('')}
-    </div>
+    ${rangeBarHTML(purRange,'setPurRange',customBar)}
+    <div class="stat-card" style="margin-bottom:1rem"><div class="stat-label">Total purchases — ${esc(b.label)}</div>
+      <div class="stat-value" style="color:var(--danger)">₹${fmt(total)}</div>
+      <div style="font-size:11px;color:var(--muted)">${list.length} purchase${list.length===1?'':'s'}</div></div>
     <div class="card" style="padding:0;overflow:hidden">
       ${list.length?`<div style="overflow-x:auto"><table>
-        <thead><tr><th>Date</th><th>Material</th><th style="text-align:right">Qty</th><th style="text-align:right">Rate</th><th style="text-align:right">Amount</th><th>Note</th><th></th></tr></thead>
-        <tbody>${list.map(x=>{
-          const m = MATERIALS.find(mm=>mm.id===x.material)||{label:x.material,unit:''};
-          return `<tr>
+        <thead><tr><th>Date</th><th>Note</th><th style="text-align:right">Amount</th><th></th></tr></thead>
+        <tbody>${list.map(x=>`<tr>
             <td style="white-space:nowrap;font-size:12px">${fmtDate(x.date)}</td>
-            <td style="font-weight:600">${esc(m.label)}</td>
-            <td style="text-align:right">${fmt(x.qty)} ${m.unit}</td>
-            <td style="text-align:right">₹${fmt(x.rate)}</td>
+            <td style="font-weight:600">${esc(purchaseDesc(x))}</td>
             <td style="text-align:right;font-weight:700">₹${fmt(x.amount)}</td>
-            <td style="font-size:12px;color:var(--muted)">${esc(x.note||'')}</td>
             <td style="text-align:right;white-space:nowrap">
               <button class="btn-sm" onclick="openMatModal('${x.id}')">Edit</button>
               <button class="btn-sm btn-danger" onclick="delMat('${x.id}')">Del</button>
             </td>
-          </tr>`;}).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-package"></i>No material deliveries yet</div>`}
+          </tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-shopping-cart"></i>${purRange==='all'?'No purchases yet — tap "+ Add purchase"':'No purchases in '+esc(b.label.toLowerCase())}</div>`}
     </div>`;
 }
 function openMatModal(id){
   const x = id ? cache.materials.find(m=>m.id===id) : null;
-  const rates = cache.mat_rates||{};
   modal(`<div class="modal">
-    <div class="modal-header"><h3>${x?'Edit':'Add'} material delivery</h3><button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
+    <div class="modal-header"><h3>${x?'Edit':'Add'} purchase</h3><button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
     <div class="modal-body">
-      <div class="form-row cols-2">
-        <div class="form-group"><label>Date</label><input type="date" id="m-date" value="${x?x.date:today()}"></div>
-        <div class="form-group"><label>Material</label>
-          <select id="m-mat" onchange="matRateHint()">${MATERIALS.map(m=>`<option value="${m.id}" ${x&&x.material===m.id?'selected':''}>${esc(m.label)} (${m.unit})</option>`).join('')}</select></div>
-      </div>
-      <div class="form-row cols-2">
-        <div class="form-group"><label>Quantity</label><input type="number" min="0" step="0.01" inputmode="decimal" id="m-qty" value="${x?.qty||''}" oninput="matCalc()"></div>
-        <div class="form-group"><label id="m-rate-lbl">Rate per unit (₹)</label><input type="number" min="0" inputmode="numeric" id="m-rate" value="${x?x.rate:(rates[MATERIALS[0].id]||'')}" oninput="matCalc()"></div>
-      </div>
-      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;display:flex;justify-content:space-between;font-weight:700;margin-bottom:10px">
-        <span>Amount</span><span id="m-amt">₹${fmt(x?.amount||0)}</span>
-      </div>
-      <div class="form-group"><label>Note / supplier (optional)</label><input type="text" id="m-note" value="${esc(x?.note||'')}"></div>
+      <div class="form-group"><label>Date</label><input type="date" id="m-date" value="${x?x.date:today()}"></div>
+      <div class="form-group"><label>Note / what was purchased</label>
+        <input type="text" id="m-note" value="${esc(x?.note||(x?purchaseDesc(x):''))}" placeholder="e.g. Cement 50 bags, Steel rods, Diesel…"></div>
+      <div class="form-group"><label>Amount (₹)</label>
+        <input type="number" min="0" inputmode="numeric" id="m-amt-in" value="${x?.amount||''}" placeholder="0"></div>
     </div>
     <div class="modal-footer">
       <button onclick="closeModal()">Cancel</button>
       <button class="btn-primary" onclick="saveMat('${id||''}')">Save</button>
     </div>
   </div>`);
-  matRateHint(!!x);
-}
-function matRateHint(skipRateFill){
-  const matId = document.getElementById('m-mat').value;
-  const m = MATERIALS.find(mm=>mm.id===matId);
-  document.getElementById('m-rate-lbl').textContent = `Rate per ${m.unit} (₹)`;
-  if(!skipRateFill){
-    const saved = Number((cache.mat_rates||{})[matId])||0;
-    if(saved>0) document.getElementById('m-rate').value = saved;
-  }
-  matCalc();
-}
-function matCalc(){
-  const q=Number(document.getElementById('m-qty')?.value)||0, r=Number(document.getElementById('m-rate')?.value)||0;
-  const el=document.getElementById('m-amt'); if(el) el.textContent='₹'+fmt(q*r);
 }
 async function saveMat(id){
-  const date = document.getElementById('m-date').value;
-  const matId= document.getElementById('m-mat').value;
-  const qty  = Number(document.getElementById('m-qty').value)||0;
-  const rate = Number(document.getElementById('m-rate').value)||0;
-  if(!date||qty<=0){ alert('Date and quantity required'); return; }
-  await col('materials').doc(id||uid()).set({ date, material:matId, qty, rate, amount:qty*rate, note:document.getElementById('m-note').value.trim() });
-  cache.mat_rates = cache.mat_rates||{}; if(rate>0){ cache.mat_rates[matId]=rate; saveMeta('mat_rates'); }
+  const date   = document.getElementById('m-date').value;
+  const note   = document.getElementById('m-note').value.trim();
+  const amount = Number(document.getElementById('m-amt-in').value)||0;
+  if(!date){ alert('Select a date'); return; }
+  if(amount<=0){ alert('Enter the amount'); return; }
+  if(!note){ alert('Add a note describing the purchase'); return; }
+  await col('materials').doc(id||uid()).set({ date, note, amount });
   closeModal();
 }
-async function delMat(id){ if(confirm('Delete this delivery?')) await col('materials').doc(id).delete(); }
+async function delMat(id){ if(confirm('Delete this purchase?')) await col('materials').doc(id).delete(); }
 
 // ── ADVANCES (labour + partners) ─────────────────────────────────────────────
 function renderAdvances(){
