@@ -740,6 +740,81 @@ function exportProduction() {
   downloadCSV('production_'+today()+'.csv', headers, rows);
 }
 
+// Full printable Production report (summary + salary calculator + log) for the
+// currently-selected date range. Opens a clean page the user saves as PDF.
+function printProduction() {
+  const defaultFrom = today().slice(0,7) + '-01';
+  const fd  = prodFilterFrom || defaultFrom;
+  const td2 = prodFilterTo   || today();
+  const filtered = [...cache.production].filter(p=>p.date>=fd && p.date<=td2)
+    .sort((a,b)=>b.date.localeCompare(a.date));
+  const totals = {}; PIPE_TYPES.forEach(t=>totals[t]=0);
+  filtered.forEach(p=>PIPE_TYPES.forEach(t=>totals[t]+=(Number(p.pipes&&p.pipes[t])||0)));
+  const grandTotal = PIPE_TYPES.reduce((s,t)=>s+totals[t],0);
+  const rates = cache.piecerate || {};
+  const totalWages = PIPE_TYPES.reduce((s,t)=>s+(totals[t]||0)*(rates[t]||0),0);
+  const p = cache.gst_profile||{};
+
+  const summaryRows = PIPE_TYPES.filter(t=>totals[t]>0).map(t=>
+    `<tr><td>${esc(t)}</td><td style="text-align:center;font-weight:700">${totals[t]}</td></tr>`).join('')
+    || `<tr><td colspan="2" style="text-align:center;color:#888">No production in this range</td></tr>`;
+
+  const salaryRows = PIPE_TYPES.map(t=>{
+    const qty=totals[t]||0, rate=rates[t]||0, amt=qty*rate;
+    return `<tr><td>${esc(t)}</td><td style="text-align:center;font-weight:700">${qty}</td>
+      <td style="text-align:center">${rate>0?'₹'+fmt(rate):'—'}</td>
+      <td style="text-align:right;font-weight:600;color:${amt>0?'#15803d':'#888'}">${amt>0?'₹'+fmt(amt):'—'}</td></tr>`;
+  }).join('');
+
+  const logRows = filtered.length ? filtered.map(pr=>{
+    const tot=PIPE_TYPES.reduce((s,t)=>s+(Number(pr.pipes&&pr.pipes[t])||0),0);
+    const rej=PIPE_TYPES.reduce((s,t)=>s+(Number(pr.rejects&&pr.rejects[t])||0),0);
+    return `<tr><td style="white-space:nowrap;font-weight:600">${fmtDate(pr.date)}</td>
+      ${PIPE_TYPES.map(t=>`<td style="text-align:center">${(pr.pipes&&pr.pipes[t]>0)?pr.pipes[t]:''}</td>`).join('')}
+      <td style="text-align:center;font-weight:700">${tot}</td>
+      <td style="text-align:center">${rej>0?rej:'—'}</td></tr>`;
+  }).join('') : `<tr><td colspan="${PIPE_TYPES.length+3}" style="text-align:center;color:#888;padding:14px">No production in this range</td></tr>`;
+
+  const th='padding:6px 8px;border:1px solid #cbd5e1;background:#f1f5f9;font-size:11px;text-align:left';
+  const td='padding:6px 8px;border:1px solid #cbd5e1;font-size:12px';
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Production Report ${fmtDate(fd)} to ${fmtDate(td2)}</title>
+  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;color:#0f172a;background:#fff;padding:22px}
+  table{border-collapse:collapse;width:100%;margin-bottom:6px}th,td{${td}}th{${th}}
+  h2{color:#1e40af;font-size:18px}h3{font-size:14px;margin:18px 0 8px;color:#334155}
+  @media print{.no-print{display:none!important}body{padding:0}}</style></head><body>
+    <div style="border-bottom:2px solid #e2e8f0;padding-bottom:10px;margin-bottom:14px">
+      <h2>BKN RCC SPUN PIPES</h2>
+      <div style="font-size:12px;color:#475569">${(p.address||'Tiptur, Karnataka').split('\\n').map(l=>esc(l.trim())).filter(Boolean).join(', ')}</div>
+      <div style="font-size:15px;font-weight:700;margin-top:8px">Production Report</div>
+      <div style="font-size:12px;color:#475569">Period: <strong>${fmtDate(fd)}</strong> to <strong>${fmtDate(td2)}</strong>
+        &nbsp;·&nbsp; ${filtered.length} day(s) &nbsp;·&nbsp; <strong>${grandTotal}</strong> total pipes produced</div>
+    </div>
+
+    <h3>Production Summary</h3>
+    <table style="max-width:340px"><thead><tr><th>Pipe Type</th><th style="text-align:center">Qty Produced</th></tr></thead>
+      <tbody>${summaryRows}
+        <tr style="background:#f8fafc"><td style="font-weight:700">Total</td><td style="text-align:center;font-weight:700">${grandTotal}</td></tr></tbody></table>
+
+    <h3>Piecework Salary Calculator</h3>
+    <table><thead><tr><th>Pipe Type</th><th style="text-align:center">Qty Produced</th><th style="text-align:center">Rate / pipe (₹)</th><th style="text-align:right">Amount (₹)</th></tr></thead>
+      <tbody>${salaryRows}</tbody>
+      <tfoot><tr style="background:#f0fdf4"><td colspan="3" style="text-align:right;font-weight:700">Total Wages for Period:</td>
+        <td style="text-align:right;font-weight:700;color:#15803d">₹${fmt(totalWages)}</td></tr></tfoot></table>
+
+    <h3>Daily Production Log</h3>
+    <table><thead><tr><th>Date</th>${PIPE_TYPES.map(t=>`<th style="text-align:center;font-size:10px">${esc(t)}</th>`).join('')}<th style="text-align:center">Total</th><th style="text-align:center">Rejects</th></tr></thead>
+      <tbody>${logRows}</tbody></table>
+
+    <div style="margin-top:14px;font-size:11px;color:#94a3b8">Generated ${fmtDate(today())} · BKN RCC SPUN PIPES</div>
+    <div class="no-print" style="text-align:center;padding:16px;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #e2e8f0">
+      <button onclick="window.print()" style="padding:11px 30px;background:#1e40af;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">&#128424; Save as PDF / Print</button>
+    </div>
+  </body></html>`;
+  const win = window.open('','_blank');
+  if(win){ win.document.write(html); win.document.close(); }
+  else { alert('Please allow pop-ups to download the report.'); }
+}
+
 function exportAttendance() {
   const dates = [...new Set(cache.attendance.map(a=>a.date))].sort((a,b)=>b.localeCompare(a));
   const headers = ['Date', ...STAFF];
@@ -2136,6 +2211,7 @@ function renderProduction(fromDate, toDate) {
   document.getElementById('topbar-action').innerHTML =
     `<div style="display:flex;gap:8px">
       <button class="no-print" onclick="exportProduction()" title="Export to Excel"><i class="ti ti-table-export"></i> Excel</button>
+      <button class="no-print" onclick="printProduction()" title="Download full page as PDF"><i class="ti ti-file-download"></i> PDF</button>
       <button class="btn-primary no-print" onclick="openQuickProdModal()"><i class="ti ti-plus"></i> Log production</button>
     </div>`;
 
