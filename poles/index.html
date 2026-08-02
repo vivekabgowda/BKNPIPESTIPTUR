@@ -195,6 +195,8 @@ let currentPage = 'dashboard';
 let cache = { production:[], orders:[], materials:[], advances:[], gst_invoices:[], pole_rates:{}, mat_rates:{}, gst_profile:{}, opening:{} };
 let listeners = [];
 let salesTab = 'orders';
+let salesRange = 'all';        // all | month | lastmonth | year | custom
+let salesFrom = '', salesTo = '';   // used when salesRange==='custom' (YYYY-MM-DD)
 let advTab = 'labour';
 let advMonth = ''; // '' = all months, else 'YYYY-MM'
 let gstFromDate = '', gstToDate = '', gstInvoiceFilter = '';
@@ -325,6 +327,7 @@ function renderDashboard(){
   cache.production.filter(p=>(p.date||'').startsWith(mon)).forEach(p=>POLE_TYPES.forEach(t=>monProd[t]+=(Number(p.poles&&p.poles[t])||0)));
   const monOrders = cache.orders.filter(o=>(o.orderDate||'').startsWith(mon));
   const monSalesTotal = monOrders.reduce((s,o)=>s+(Number(o.total)||0),0);
+  const allSalesTotal = cache.orders.reduce((s,o)=>s+(Number(o.total)||0),0);
   const receivable = cache.orders.reduce((s,o)=>s+Math.max(0,Number(o.balance)||0),0);
   const pending = cache.orders.filter(o=>o.status!=='delivered');
   const partnerTotals = PARTNERS.map(p=>({
@@ -336,7 +339,7 @@ function renderDashboard(){
       ${POLE_TYPES.map(t=>`<div class="stat-card"><div class="stat-label">${esc(t)} stock</div><div class="stat-value" style="color:${stock[t]<0?'var(--danger)':'var(--brand-mid)'}">${fmt(stock[t])}</div>
         <div style="font-size:11px;color:var(--muted)">+${fmt(monProd[t])} made this month</div></div>`).join('')}
       <div class="stat-card"><div class="stat-label">Receivable (balance due)</div><div class="stat-value" style="color:var(--warning)">₹${fmt(receivable)}</div></div>
-      <div class="stat-card"><div class="stat-label">Sales this month</div><div class="stat-value" style="color:var(--success)">₹${fmt(monSalesTotal)}</div><div style="font-size:11px;color:var(--muted)">${monOrders.length} orders</div></div>
+      <div class="stat-card"><div class="stat-label">Total sales (all time)</div><div class="stat-value" style="color:var(--success)">₹${fmt(allSalesTotal)}</div><div style="font-size:11px;color:var(--muted)">${cache.orders.length} orders · ₹${fmt(monSalesTotal)} this month</div></div>
     </div>
     <div class="card">
       <div style="font-weight:700;font-size:14px;margin-bottom:10px">Partner &amp; labour advances (all time)</div>
@@ -477,9 +480,39 @@ function remindBalance(orderId){
   const firstPhone = (o.phone||'').split(',')[0].replace(/\D/g,'');
   window.open(`https://wa.me/91${firstPhone}?text=${encodeURIComponent(text)}`, '_blank');
 }
+function salesRangeBounds(){
+  const t = today(), ym = t.slice(0,7), y = t.slice(0,4);
+  if(salesRange==='month')     return { from: ym+'-01', to: monthEnd(ym), label:'This month' };
+  if(salesRange==='lastmonth'){ const [yy,mm]=ym.split('-').map(Number); const d=new Date(yy,mm-2,1);
+    const lym=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    return { from: lym+'-01', to: monthEnd(lym), label:'Last month' }; }
+  if(salesRange==='year')      return { from: y+'-01-01', to: y+'-12-31', label:'This year ('+y+')' };
+  if(salesRange==='custom')    return { from: salesFrom||'0000-01-01', to: salesTo||'9999-12-31', label:'Custom range' };
+  return { from:'0000-01-01', to:'9999-12-31', label:'All time' };
+}
 function renderOrdersTab(){
-  const list = [...cache.orders].sort((a,b)=>(b.orderDate||'').localeCompare(a.orderDate||''));
+  const b = salesRangeBounds();
+  const list = [...cache.orders]
+    .filter(o=>{ const d=o.orderDate||''; return d && d>=b.from && d<=b.to; })
+    .sort((a,b2)=>(b2.orderDate||'').localeCompare(a.orderDate||''));
+  const rangeTotal = list.reduce((s,o)=>s+(Number(o.total)||0),0);
+  const rangePaid  = list.reduce((s,o)=>s+((Number(o.total)||0)-Math.max(0,Number(o.balance)||0)),0);
+  const rangeDue   = list.reduce((s,o)=>s+Math.max(0,Number(o.balance)||0),0);
+  const RANGES = [['all','All time'],['month','This month'],['lastmonth','Last month'],['year','This year'],['custom','Custom']];
   document.getElementById('sales-panel').innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px">
+      ${RANGES.map(([v,lbl])=>`<button class="tab ${salesRange===v?'active':''}" style="padding:6px 12px;font-size:13px" onclick="salesRange='${v}';renderSales()">${lbl}</button>`).join('')}
+      ${salesRange==='custom'?`<span style="display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)">
+        <input type="date" value="${salesFrom}" onchange="salesFrom=this.value;renderSales()" style="font-size:12px;padding:4px 6px">
+        <span>to</span>
+        <input type="date" value="${salesTo}" onchange="salesTo=this.value;renderSales()" style="font-size:12px;padding:4px 6px">
+      </span>`:''}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:1rem">
+      <div class="stat-card"><div class="stat-label">Sales — ${esc(b.label)}</div><div class="stat-value" style="color:var(--success)">₹${fmt(rangeTotal)}</div><div style="font-size:11px;color:var(--muted)">${list.length} sale${list.length===1?'':'s'}</div></div>
+      <div class="stat-card"><div class="stat-label">Collected</div><div class="stat-value" style="font-size:19px">₹${fmt(rangePaid)}</div></div>
+      <div class="stat-card"><div class="stat-label">Balance due</div><div class="stat-value" style="font-size:19px;color:${rangeDue>0?'var(--warning)':'var(--success)'}">₹${fmt(rangeDue)}</div></div>
+    </div>
     <div class="card" style="padding:0;overflow:hidden">
       ${list.length?`<div style="overflow-x:auto"><table>
         <thead><tr><th>Date</th><th>Customer</th><th>Poles</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Status</th><th></th></tr></thead>
@@ -497,7 +530,7 @@ function renderOrdersTab(){
             <button class="btn-sm" onclick="openOrderModal('${o.id}')">Edit</button>
             <button class="btn-sm btn-danger" onclick="delOrder('${o.id}')">Del</button>
           </td>
-        </tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-clipboard-list"></i>No sales yet — tap "+ New sale"</div>`}
+        </tr>`).join('')}</tbody></table></div>`:`<div class="empty-state"><i class="ti ti-clipboard-list"></i>${salesRange==='all'?'No sales yet — tap "+ New sale"':'No sales in '+esc(b.label.toLowerCase())}</div>`}
     </div>`;
 }
 function renderCustomersTab(){
