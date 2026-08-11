@@ -3390,31 +3390,61 @@ function renderProfit() {
 }
 
 // ── STAFF ─────────────────────────────────────────────────────────────────────
+let _staffEdit = null;   // working copy while the manage-staff modal is open
+function _syncStaffEdit(){
+  if(!_staffEdit) return;
+  _staffEdit = _staffEdit.map((v,i)=>{ const el=document.getElementById('staff-name-'+i); return el?el.value:v; });
+}
 function openEditStaffModal() {
+  _staffEdit = [...STAFF];
+  renderStaffEditModal();
+}
+function renderStaffEditModal() {
   modal(`<div class="modal">
     <div class="modal-header">
-      <h3 style="font-size:15px;font-weight:600">Edit staff names</h3>
+      <h3 style="font-size:15px;font-weight:600">Manage staff</h3>
       <button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:#888;margin-bottom:12px">These names appear in attendance, advances, and dispatch.</p>
-      ${STAFF.map((s,i)=>`
-        <div class="form-group"><label>Staff ${i+1}</label>
-          <input type="text" id="staff-name-${i}" value="${esc(s)}" placeholder="Name">
-        </div>`).join('')}
+      <p style="font-size:13px;color:#888;margin-bottom:12px">Add new staff, rename, or remove staff who left. These names appear in attendance, advances, dispatch &amp; payroll. Removing a staff only hides them from the lists — their past attendance and advances stay saved.</p>
+      <div id="staff-edit-rows">
+        ${_staffEdit.map((s,i)=>`
+          <div class="form-group" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <input type="text" id="staff-name-${i}" value="${esc(s)}" placeholder="Staff name" oninput="_staffEdit[${i}]=this.value" style="flex:1">
+            <button class="btn-sm btn-danger" onclick="removeStaffRow(${i})" title="Remove staff" style="flex-shrink:0">&times;</button>
+          </div>`).join('')}
+      </div>
+      <button class="btn-sm" onclick="addStaffRow()" style="margin-top:4px"><i class="ti ti-plus"></i> Add staff</button>
     </div>
     <div class="modal-footer">
       <button onclick="closeModal()">Cancel</button>
-      <button class="btn-primary" onclick="saveStaffNames()">Save names</button>
+      <button class="btn-primary" onclick="saveStaffNames()">Save</button>
     </div>
   </div>`);
 }
+function addStaffRow() {
+  _syncStaffEdit();
+  _staffEdit.push('');
+  renderStaffEditModal();
+  const el = document.getElementById('staff-name-'+(_staffEdit.length-1)); if(el) el.focus();
+}
+function removeStaffRow(i) {
+  _syncStaffEdit();
+  const nm = (_staffEdit[i]||'').trim();
+  if(!confirm(`Remove ${nm||'this staff'}? They will no longer appear in attendance, advances, dispatch or payroll. Their past records stay saved.`)) return;
+  _staffEdit.splice(i,1);
+  renderStaffEditModal();
+}
 function saveStaffNames() {
-  const names = STAFF.map((_,i) => document.getElementById('staff-name-'+i)?.value.trim()).filter(Boolean);
-  if(names.length !== STAFF.length) { alert('All names required'); return; }
+  _syncStaffEdit();
+  const names = _staffEdit.map(s=>(s||'').trim()).filter(Boolean);
+  if(!names.length) { alert('Add at least one staff'); return; }
+  const lower = names.map(n=>n.toLowerCase());
+  if(new Set(lower).size !== lower.length) { alert('Two staff have the same name — each name must be unique.'); return; }
   STAFF = names;
   localStorage.setItem('hpf_staff', JSON.stringify(STAFF));
   firestoreDb.collection('meta').doc('staff_config').set({ names: STAFF });
+  _staffEdit = null;
   closeModal();
   renderStaff();
 }
@@ -3427,7 +3457,7 @@ function renderStaff() {
       <button class="no-print" onclick="exportPayroll(payrollMonth||today().slice(0,7))" title="Export payroll"><i class="ti ti-table-export"></i> Payroll</button>
       <button class="no-print" onclick="exportLabourPayments()" title="Export labour payments"><i class="ti ti-table-export"></i> Labour</button>
       <button class="no-print" onclick="printPage()" title="Save as PDF"><i class="ti ti-printer"></i> Print</button>
-      <button onclick="openEditStaffModal()"><i class="ti ti-users"></i> Edit names</button>
+      <button onclick="openEditStaffModal()"><i class="ti ti-users"></i> Manage staff</button>
       <button class="btn-primary no-print" onclick="openAttModal()"><i class="ti ti-calendar"></i> Log attendance</button>
     </div>`;
 
