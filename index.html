@@ -5807,7 +5807,23 @@ function openQuotationModal(id) {
       <div style="padding:10px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--border);margin-bottom:12px">
         <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700"><span>Total</span><span id="gi-grand-total" style="color:var(--brand)">₹0</span></div>
       </div>
-      <div class="form-group"><label>Notes <span style="font-size:11px;color:var(--muted)">(optional)</span></label><input type="text" id="qt-notes" value="${esc(q?.notes||'')}" placeholder="e.g. Price valid for 15 days, GST extra"></div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>GST</label>
+          <select id="qt-gst">
+            <option value="extra"     ${(!q||q.gstMode==='extra'||!q.gstMode)?'selected':''}>GST extra (18%)</option>
+            <option value="inclusive" ${q&&q.gstMode==='inclusive'?'selected':''}>GST included in price</option>
+            <option value="na"        ${q&&q.gstMode==='na'?'selected':''}>Not applicable</option>
+          </select>
+        </div>
+        <div class="form-group"><label>Transportation</label>
+          <select id="qt-transport">
+            <option value="extra"    ${(!q||q.transportMode==='extra'||!q.transportMode)?'selected':''}>Transport extra</option>
+            <option value="included" ${q&&q.transportMode==='included'?'selected':''}>Transport included</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group"><label>Payment Terms <span style="font-size:11px;color:var(--muted)">(optional)</span></label><input type="text" id="qt-payterms" value="${esc(q?.paymentTerms||'')}" placeholder="e.g. 50% advance, balance before delivery"></div>
+      <div class="form-group"><label>Notes <span style="font-size:11px;color:var(--muted)">(optional)</span></label><input type="text" id="qt-notes" value="${esc(q?.notes||'')}" placeholder="e.g. Price valid for 15 days"></div>
     </div>
     <div class="modal-footer">
       <button onclick="closeModal()">Cancel</button>
@@ -5843,6 +5859,9 @@ async function saveQuotation(id) {
     phone:      document.getElementById('qt-phone')?.value.trim()||'',
     validUntil: document.getElementById('qt-valid')?.value||'',
     items, total,
+    gstMode:       document.getElementById('qt-gst')?.value||'extra',
+    transportMode: document.getElementById('qt-transport')?.value||'extra',
+    paymentTerms:  document.getElementById('qt-payterms')?.value.trim()||'',
     notes: document.getElementById('qt-notes')?.value.trim()||''
   };
   try {
@@ -5925,6 +5944,16 @@ function openQuotationPrint(id) {
       </tbody>
     </table>
     <div style="font-size:12px;color:#475569;margin:8px 0;font-style:italic">Amount in words: <strong>${numToWords(q.total)}</strong></div>
+    ${(()=>{ const gstTxt={extra:'GST 18% extra',inclusive:'GST included in the above prices',na:'Not applicable'}[q.gstMode||'extra'];
+      const trTxt={extra:'Transportation charges extra',included:'Transportation included'}[q.transportMode||'extra'];
+      const terms=[];
+      terms.push(['GST', gstTxt]);
+      terms.push(['Transportation', trTxt]);
+      if(q.paymentTerms) terms.push(['Payment Terms', esc(q.paymentTerms)]);
+      return `<div class="box" style="margin:10px 0"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:6px">Terms &amp; Conditions</div>
+        <table style="width:auto;margin:0;border:none"><tbody>${terms.map(([k,v])=>`<tr>
+          <td style="border:none;padding:2px 14px 2px 0;font-size:12px;color:#475569;white-space:nowrap;vertical-align:top">${k}:</td>
+          <td style="border:none;padding:2px 0;font-size:12px;font-weight:600">${v}</td></tr>`).join('')}</tbody></table></div>`; })()}
     ${q.notes?`<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:9px 13px;font-size:12px;margin:10px 0"><strong>Note:</strong> ${esc(q.notes)}</div>`:''}
     <div style="display:flex;justify-content:flex-end;margin-top:30px;padding-top:18px;border-top:1px solid #e2e8f0">
       <div style="text-align:center">
