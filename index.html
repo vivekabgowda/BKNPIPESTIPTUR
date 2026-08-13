@@ -5620,64 +5620,7 @@ function printAllGSTInvoices() {
   const rangeLabel   = (gstFromDate||gstToDate)
     ? `${gstFromDate?fmtDate(gstFromDate):'Start'} to ${gstToDate?fmtDate(gstToDate):'Today'}`
     : `FY ${gstInvoiceFilter}`;
-  const invoicePages = filtered.map((inv,idx)=>{
-    const intra = inv.supplyType==='intrastate';
-    const rows = (inv.items||[]).map((item,i)=>`
-      <tr>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:center">${i+1}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1">${esc(gstItemDesc(item.pipeType))}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:center">${esc(item.hsn||'6810')}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:center">${item.qty}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:right">&#8377;${fmt(item.rate)}</td>
-        <td style="padding:6px 8px;border:1px solid #cbd5e1;text-align:right">&#8377;${fmt(item.taxableValue)}</td>
-      </tr>`).join('');
-    const taxRows = intra
-      ? `<tr><td colspan="5" style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">CGST @ ${inv.gstRate/2}%</td><td style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">&#8377;${fmt(inv.cgst)}</td></tr>
-         <tr><td colspan="5" style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">SGST @ ${inv.gstRate/2}%</td><td style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">&#8377;${fmt(inv.sgst)}</td></tr>`
-      : `<tr><td colspan="5" style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">IGST @ ${inv.gstRate}%</td><td style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">&#8377;${fmt(inv.igst)}</td></tr>`;
-    return `<div style="page-break-after:${idx<filtered.length-1?'always':'auto'};padding:20px">
-      <div style="border:2px solid #1e40af;padding:22px;max-width:800px;margin:0 auto">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;padding-bottom:12px;border-bottom:2px solid #e2e8f0">
-          <div>
-            <div style="font-size:17px;font-weight:700;color:#1e40af">BKN RCC SPUN PIPES</div>
-            <div style="font-size:11px;color:#475569;margin-top:2px">${(p.address||'Tiptur, Karnataka').split('\n').map(l=>esc(l.trim())).filter(Boolean).join('<br>')}</div>
-            ${p.phone?`<div style="font-size:11px;color:#475569">Ph: ${p.phone.split('\n').map(l=>esc(l.trim())).filter(Boolean).join(' / ')}</div>`:''}
-            ${p.gstin?`<div style="font-size:11px;margin-top:2px"><strong>GSTIN:</strong> ${esc(p.gstin)}</div>`:''}
-          </div>
-          <div style="text-align:right">
-            <div style="font-size:17px;font-weight:700;color:#1e40af">TAX INVOICE</div>
-            <div style="font-size:12px;margin-top:6px"><strong>${esc(inv.invoiceNo)}</strong></div>
-            <div style="font-size:12px">${fmtDate(inv.invoiceDate)}</div>
-          </div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:8px 10px">
-            <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:4px">Bill To</div>
-            <div style="font-size:13px;font-weight:700">${esc(inv.customer)}</div>
-            ${inv.customerAddress?`<div style="font-size:11px;color:#475569">${esc(inv.customerAddress)}</div>`:''}
-            ${inv.customerGSTIN?`<div style="font-size:11px"><strong>GSTIN:</strong> ${esc(inv.customerGSTIN)}</div>`:''}
-          </div>
-          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:4px;padding:8px 10px">
-            <div style="font-size:11px"><strong>Supply:</strong> ${intra?'Intra-state':'Inter-state'}</div>
-            <div style="font-size:11px;margin-top:3px"><strong>GST Rate:</strong> ${inv.gstRate}%</div>
-          </div>
-        </div>
-        <table style="width:100%;border-collapse:collapse;font-size:11px">
-          <thead><tr style="background:#1e40af;color:#fff">
-            <th style="padding:6px 8px;width:28px">#</th><th style="padding:6px 8px;text-align:left">Description</th>
-            <th style="padding:6px 8px;width:58px">HSN</th><th style="padding:6px 8px;width:46px">Qty</th>
-            <th style="padding:6px 8px;width:80px;text-align:right">Rate</th><th style="padding:6px 8px;width:88px;text-align:right">Amount</th>
-          </tr></thead>
-          <tbody>${rows}
-            <tr style="background:#f8fafc"><td colspan="5" style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;font-weight:600">Taxable Value</td><td style="padding:5px 8px;border:1px solid #cbd5e1;text-align:right;font-weight:600">&#8377;${fmt(inv.taxableTotal)}</td></tr>
-            ${taxRows}
-            <tr style="background:#eff6ff"><td colspan="5" style="padding:7px 8px;border:2px solid #1e40af;text-align:right;font-weight:700;font-size:13px">Grand Total</td><td style="padding:7px 8px;border:2px solid #1e40af;text-align:right;font-weight:700;font-size:13px;color:#1e40af">&#8377;${fmt(inv.grandTotal)}</td></tr>
-          </tbody>
-        </table>
-        <div style="font-size:10px;color:#475569;margin-top:5px;font-style:italic">Amount: <strong>${numToWords(inv.grandTotal)}</strong></div>
-      </div>
-    </div>`;
-  }).join('');
+  const invoicePages = filtered.map((inv)=>`<div class="inv-page">${gstInvoiceCardHTML(inv, p, 'Original for Recipient')}</div>`).join('\n');
   const summaryRows = filtered.map((inv,i)=>`
     <tr style="border-bottom:1px solid #e2e8f0">
       <td style="padding:6px 10px;text-align:center">${i+1}</td>
@@ -5690,7 +5633,7 @@ function printAllGSTInvoices() {
     </tr>`).join('');
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
   <title>GST Invoices &#8212; ${esc(rangeLabel)}</title>
-  <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:12px;color:#0f172a;background:#fff}@media print{.no-print{display:none!important}}</style>
+  <style>${gstInvoiceCSS()}</style>
   </head><body>
   ${invoicePages}
   <div style="page-break-before:always;padding:28px">
@@ -6275,104 +6218,143 @@ async function delGSTInvoice(id) {
   try { await col('gst_invoices').doc(id).delete(); } catch(e) { alert('Delete failed: '+e.message); }
 }
 
+// ── Shared premium GST-invoice template (navy/gold, brand-matched). Print/display only. ──
+function gstInvoiceCSS(){ return `
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;color:#1f2937;background:#eef1f5;padding:18px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .ginv{max-width:820px;margin:0 auto 20px;background:#fff;border:1px solid #d9dee6;box-shadow:0 2px 16px rgba(15,44,76,.12)}
+  .ginv .mast{background:#0f2c4c;color:#fff;padding:20px 26px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+  .ginv .brand{display:flex;gap:14px;align-items:center}
+  .ginv .logo{width:54px;height:54px;flex:none;border-radius:50%;background:#fff;color:#0f2c4c;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;letter-spacing:.5px;font-family:Georgia,serif;border:2px solid #b7902e}
+  .ginv .cname{font-family:Georgia,'Times New Roman',serif;font-size:21px;font-weight:700;letter-spacing:.3px;line-height:1.12}
+  .ginv .ctag{font-size:10.5px;color:#c7d3e0;margin-top:3px;letter-spacing:.2px}
+  .ginv .cmeta{font-size:11px;color:#dbe4ee;margin-top:6px;line-height:1.55}
+  .ginv .doctitle{text-align:right;flex:none}
+  .ginv .doctitle .t{font-size:20px;font-weight:800;letter-spacing:2px}
+  .ginv .copy{display:inline-block;margin-top:7px;background:#b7902e;color:#0f2c4c;font-size:9px;font-weight:800;letter-spacing:.5px;padding:3px 9px;border-radius:3px;text-transform:uppercase}
+  .ginv .goldbar{height:3px;background:#b7902e}
+  .ginv .body{padding:18px 26px 22px}
+  .ginv .meta{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:16px}
+  .ginv .meta > div{padding:8px 12px;border-right:1px solid #eef1f5}
+  .ginv .meta > div:last-child{border-right:none}
+  .ginv .meta .k{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#8592a3}
+  .ginv .meta .v{font-size:12.5px;font-weight:700;margin-top:2px}
+  .ginv .parties{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+  .ginv .card{border:1px solid #e2e8f0;border-radius:6px;padding:11px 14px}
+  .ginv .h{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:#0f2c4c;margin-bottom:6px;border-bottom:2px solid #b7902e;display:inline-block;padding-bottom:2px}
+  .ginv .pname{font-size:14px;font-weight:700}
+  .ginv .psub{font-size:11.5px;color:#556}
+  .ginv table.items{width:100%;border-collapse:collapse;font-size:12px}
+  .ginv table.items thead th{background:#0f2c4c;color:#fff;padding:9px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;text-align:left;font-weight:600}
+  .ginv table.items tbody td{padding:8px 10px;border-bottom:1px solid #e8ecf1}
+  .ginv table.items tbody tr:nth-child(even){background:#f7f9fb}
+  .ginv .tot{display:flex;justify-content:flex-end}
+  .ginv .totbox{width:310px;font-size:12.5px;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-top:12px}
+  .ginv .totbox .r{display:flex;justify-content:space-between;padding:6px 13px;border-bottom:1px solid #eef1f5}
+  .ginv .totbox .grand{background:#0f2c4c;color:#fff;padding:10px 13px;display:flex;justify-content:space-between;font-size:15px;font-weight:800;border-top:2px solid #b7902e}
+  .ginv .words{background:#f4f6f9;border-left:3px solid #b7902e;padding:9px 13px;font-size:12px;margin:14px 0}
+  .ginv table.hsnsum{width:100%;border-collapse:collapse;font-size:10.5px;margin:4px 0 12px}
+  .ginv table.hsnsum th,.ginv table.hsnsum td{border:1px solid #e2e8f0;padding:5px 8px;text-align:right}
+  .ginv table.hsnsum th{background:#eef2f6;color:#33465c;text-transform:uppercase;letter-spacing:.3px;font-size:9.5px}
+  .ginv table.hsnsum td:first-child,.ginv table.hsnsum th:first-child{text-align:left}
+  .ginv .foot{display:grid;grid-template-columns:1.3fr 1fr;gap:18px;margin-top:16px;padding-top:14px;border-top:1px solid #e2e8f0}
+  .ginv .sign{text-align:center;align-self:end}
+  .ginv .sign .co{font-weight:700;font-size:12px;border-top:1px solid #33465c;padding-top:5px}
+  .ginv .decl{font-size:10.5px;color:#667;line-height:1.6;margin-top:10px}
+  .ginv .terms{font-size:9.5px;color:#8592a3;margin-top:14px;line-height:1.6}
+  .ginv .fbar{text-align:center;font-size:10px;color:#8592a3;padding:9px;background:#f7f9fb;border-top:1px solid #eef1f5}
+  @media print{ body{background:#fff;padding:0} .ginv{box-shadow:none;border:none;margin:0} .no-print{display:none!important} .inv-page{page-break-after:always} .inv-page:last-child{page-break-after:auto} }
+`; }
+function gstInvoiceCardHTML(inv, p, copyLabel){
+  const intra = inv.supplyType==='intrastate';
+  const rate  = Number(inv.gstRate||18);
+  const gstTotal = Number(inv.cgst||0)+Number(inv.sgst||0)+Number(inv.igst||0);
+  const sum = Number(inv.taxableTotal||0)+gstTotal;
+  const rounded = Math.round(sum), roundOff = rounded - sum;
+  const addr  = (p.address||'Tiptur, Karnataka — 572201').split('\n').map(l=>esc(l.trim())).filter(Boolean).join(', ');
+  const phone = p.phone ? p.phone.split(/[\n,]/).map(s=>s.trim()).filter(Boolean).join(' / ') : '';
+  const rows = (inv.items||[]).map((it,i)=>`<tr>
+    <td style="text-align:center">${i+1}</td>
+    <td>${esc(gstItemDesc(it.pipeType))}</td>
+    <td style="text-align:center">${esc(it.hsn||'6810')}</td>
+    <td style="text-align:center">${it.qty}</td>
+    <td style="text-align:center">Nos</td>
+    <td style="text-align:right">₹${fmt(it.rate)}</td>
+    <td style="text-align:right">₹${fmt(it.taxableValue)}</td></tr>`).join('');
+  const byHsn={}; (inv.items||[]).forEach(it=>{ const h=it.hsn||'6810'; (byHsn[h]=byHsn[h]||{tv:0}).tv+=Number(it.taxableValue||0); });
+  const hsnRows = Object.keys(byHsn).map(h=>{ const tv=byHsn[h].tv, c=intra?tv*rate/200:0, ig=intra?0:tv*rate/100, tax=c*2+ig;
+    return `<tr><td>${esc(h)}</td><td>₹${fmt(tv)}</td>${intra?`<td>${rate/2}% · ₹${fmt(c)}</td><td>${rate/2}% · ₹${fmt(c)}</td>`:`<td colspan="2">IGST ${rate}% · ₹${fmt(ig)}</td>`}<td>₹${fmt(tax)}</td></tr>`; }).join('');
+  return `<div class="ginv">
+    <div class="mast">
+      <div class="brand">
+        <div class="logo">BKN</div>
+        <div>
+          <div class="cname">BKN RCC SPUN PIPES</div>
+          <div class="ctag">Manufacturers of RCC Spun (Hume) Pipes · Conforming to IS 458</div>
+          <div class="cmeta">${addr}${phone?'<br>Ph: '+phone:''}${p.gstin?'<br>GSTIN: <b>'+esc(p.gstin)+'</b>':''}${p.pan?'  ·  PAN: '+esc(p.pan):''}</div>
+        </div>
+      </div>
+      <div class="doctitle"><div class="t">TAX INVOICE</div><div class="copy">${esc(copyLabel||'Original for Recipient')}</div></div>
+    </div>
+    <div class="goldbar"></div>
+    <div class="body">
+      <div class="meta">
+        <div><div class="k">Invoice No.</div><div class="v">${esc(inv.invoiceNo)}</div></div>
+        <div><div class="k">Invoice Date</div><div class="v">${fmtDate(inv.invoiceDate)}</div></div>
+        <div><div class="k">Place of Supply</div><div class="v">${intra?'Karnataka (29)':'Outside Karnataka'}</div></div>
+        <div><div class="k">Reverse Charge</div><div class="v">No</div></div>
+      </div>
+      <div class="parties">
+        <div class="card"><div class="h">Bill To</div>
+          <div class="pname">${esc(inv.customer)}</div>
+          ${inv.customerAddress?`<div class="psub">${esc(inv.customerAddress)}</div>`:''}
+          <div class="psub" style="margin-top:4px">${inv.customerGSTIN?'GSTIN: <b>'+esc(inv.customerGSTIN)+'</b>':'Unregistered Consumer'}</div>
+        </div>
+        <div class="card"><div class="h">Tax Details</div>
+          <div class="psub"><b>GST Rate:</b> ${rate}%</div>
+          <div class="psub"><b>Tax Type:</b> ${intra?`CGST ${rate/2}% + SGST ${rate/2}%`:`IGST ${rate}%`}</div>
+          <div class="psub"><b>Supply:</b> ${intra?'Intra-state':'Inter-state'}</div>
+        </div>
+      </div>
+      <table class="items">
+        <thead><tr><th style="width:34px">#</th><th>Description</th><th style="width:60px">HSN</th><th style="width:48px">Qty</th><th style="width:44px">Unit</th><th style="width:96px;text-align:right">Rate</th><th style="width:112px;text-align:right">Taxable ₹</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="tot"><div class="totbox">
+        <div class="r"><span>Taxable Value</span><span>₹${fmt(inv.taxableTotal)}</span></div>
+        ${intra?`<div class="r"><span>CGST @ ${rate/2}%</span><span>₹${fmt(inv.cgst)}</span></div><div class="r"><span>SGST @ ${rate/2}%</span><span>₹${fmt(inv.sgst)}</span></div>`
+               :`<div class="r"><span>IGST @ ${rate}%</span><span>₹${fmt(inv.igst)}</span></div>`}
+        ${Math.abs(roundOff)>=0.005?`<div class="r"><span>Round Off</span><span>${roundOff>=0?'+':'−'}₹${fmt(Math.abs(roundOff))}</span></div>`:''}
+        <div class="grand"><span>Grand Total</span><span>₹${fmt(rounded)}</span></div>
+      </div></div>
+      <div class="words"><b>Amount in words:</b> ${numToWords(rounded)}</div>
+      <table class="hsnsum">
+        <thead><tr><th>HSN</th><th>Taxable ₹</th><th>${intra?'CGST':'IGST'}</th><th>${intra?'SGST':'—'}</th><th>Total Tax ₹</th></tr></thead>
+        <tbody>${hsnRows}</tbody>
+      </table>
+      ${inv.notes?`<div class="psub" style="margin-bottom:6px"><b>Notes:</b> ${esc(inv.notes)}</div>`:''}
+      <div class="foot">
+        <div>
+          ${p.bankDetails?`<div class="h">Bank Details</div><div class="psub" style="line-height:1.7">${p.bankDetails.split('\n').map(l=>esc(l.trim())).filter(Boolean).join('<br>')}</div>`:''}
+          <div class="decl">Certified that the particulars given above are true and correct.</div>
+        </div>
+        <div class="sign"><div style="height:44px"></div><div class="co">For BKN RCC SPUN PIPES</div><div class="psub">Authorised Signatory</div></div>
+      </div>
+      <div class="terms">Terms: Goods once sold will not be taken back. Interest @ 18% p.a. on delayed payments. Subject to Tiptur jurisdiction. E. &amp; O.E.</div>
+    </div>
+    <div class="fbar">This is a computer-generated tax invoice.${p.gstin?' · GSTIN: '+esc(p.gstin):''}</div>
+  </div>`;
+}
 function openGSTInvoicePrint(id) {
   const inv = (cache.gst_invoices||[]).find(i=>i.id===id);
   if(!inv) return;
   const p = cache.gst_profile||{};
-  const intra = inv.supplyType==='intrastate';
-  const rows = (inv.items||[]).map((item,idx)=>`
-    <tr>
-      <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${idx+1}</td>
-      <td style="padding:7px 10px;border:1px solid #cbd5e1">${esc(gstItemDesc(item.pipeType))}</td>
-      <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${esc(item.hsn||'6810')}</td>
-      <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${item.qty}</td>
-      <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">Nos</td>
-      <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:right">₹${fmt(item.rate)}</td>
-      <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:right">₹${fmt(item.taxableValue)}</td>
-    </tr>`).join('');
-  const taxRows = intra
-    ? `<tr><td colspan="6" style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">CGST @ ${inv.gstRate/2}%</td><td style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">₹${fmt(inv.cgst)}</td></tr>
-       <tr><td colspan="6" style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">SGST @ ${inv.gstRate/2}%</td><td style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">₹${fmt(inv.sgst)}</td></tr>`
-    : `<tr><td colspan="6" style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">IGST @ ${inv.gstRate}%</td><td style="padding:6px 10px;border:1px solid #cbd5e1;text-align:right;background:#f8fafc">₹${fmt(inv.igst)}</td></tr>`;
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-  <title>Tax Invoice — ${esc(inv.invoiceNo)}</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:Arial,sans-serif;font-size:13px;color:#0f172a;background:#fff;padding:20px}
-    .wrap{max-width:800px;margin:0 auto;border:2px solid #1e40af;padding:28px}
-    h1{font-size:19px;font-weight:700;color:#1e40af}
-    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;padding-bottom:14px;border-bottom:2px solid #e2e8f0}
-    .box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:12px 14px}
-    table{width:100%;border-collapse:collapse;font-size:12px;margin:14px 0}
-    th{background:#1e40af;color:#fff;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;text-align:left}
-    .amt-words{background:#f0fdf4;border:1px solid #6ee7b7;border-radius:6px;padding:9px 13px;font-size:12px;font-weight:600;margin:10px 0}
-    .footer{text-align:center;font-size:11px;color:#64748b;margin-top:18px;padding-top:14px;border-top:1px solid #e2e8f0}
-    @media print{body{padding:0}.no-print{display:none!important}.wrap{border:none;max-width:100%;padding:15px}}
-  </style></head><body>
-  <div class="wrap">
-    <div class="header">
-      <div>
-        <h1>BKN RCC SPUN PIPES</h1>
-        <div style="font-size:12px;color:#475569;margin-top:3px">${(p.address||'Tiptur, Karnataka — 572201').split('\n').map(l=>esc(l.trim())).filter(Boolean).join('<br>')}</div>
-        ${p.phone?`<div style="font-size:12px;color:#475569">Ph: ${p.phone.split('\n').map(l=>esc(l.trim())).filter(Boolean).join(' / ')}</div>`:''}
-        ${p.gstin?`<div style="font-size:12px;margin-top:4px"><strong>GSTIN:</strong> ${esc(p.gstin)}</div>`:''}
-        ${p.pan?`<div style="font-size:12px"><strong>PAN:</strong> ${esc(p.pan)}</div>`:''}
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:22px;font-weight:700;color:#1e40af;letter-spacing:1px">TAX INVOICE</div>
-        <div style="margin-top:8px;font-size:13px"><strong>Invoice No.:</strong> ${esc(inv.invoiceNo)}</div>
-        <div style="font-size:13px"><strong>Date:</strong> ${fmtDate(inv.invoiceDate)}</div>
-        <div style="margin-top:5px;display:inline-block;background:#1e40af;color:#fff;padding:3px 9px;border-radius:4px;font-size:11px;font-weight:700">${intra?'CGST + SGST':'IGST'}</div>
-      </div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
-      <div class="box">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:6px">Bill To</div>
-        <div style="font-size:14px;font-weight:700">${esc(inv.customer)}</div>
-        ${inv.customerAddress?`<div style="font-size:12px;color:#475569;margin-top:2px">${esc(inv.customerAddress)}</div>`:''}
-        ${inv.customerGSTIN?`<div style="font-size:12px;margin-top:4px"><strong>GSTIN:</strong> ${esc(inv.customerGSTIN)}</div>`:`<div style="font-size:11px;color:#94a3b8;margin-top:4px">Unregistered Consumer</div>`}
-      </div>
-      <div class="box">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:6px">Supply Details</div>
-        <div style="font-size:12px"><strong>Place of Supply:</strong> ${intra?'Karnataka (29)':'Outside Karnataka'}</div>
-        <div style="font-size:12px;margin-top:3px"><strong>GST Rate:</strong> ${inv.gstRate}%</div>
-        <div style="font-size:12px;margin-top:3px"><strong>Tax Type:</strong> ${intra?`CGST ${inv.gstRate/2}% + SGST ${inv.gstRate/2}%`:`IGST ${inv.gstRate}%`}</div>
-      </div>
-    </div>
-    <table>
-      <thead><tr>
-        <th style="width:36px">#</th>
-        <th>Description</th>
-        <th style="width:68px">HSN</th>
-        <th style="width:56px">Qty</th>
-        <th style="width:46px">Unit</th>
-        <th style="width:90px;text-align:right">Rate (₹)</th>
-        <th style="width:100px;text-align:right">Amount (₹)</th>
-      </tr></thead>
-      <tbody>
-        ${rows}
-        <tr style="background:#f8fafc"><td colspan="6" style="padding:7px 10px;border:1px solid #cbd5e1;text-align:right;font-weight:600">Taxable Value</td><td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:right;font-weight:600">₹${fmt(inv.taxableTotal)}</td></tr>
-        ${taxRows}
-        <tr style="background:#eff6ff"><td colspan="6" style="padding:9px 10px;border:2px solid #1e40af;text-align:right;font-weight:700;font-size:14px">Grand Total</td><td style="padding:9px 10px;border:2px solid #1e40af;text-align:right;font-weight:700;font-size:14px;color:#1e40af">₹${fmt(inv.grandTotal)}</td></tr>
-      </tbody>
-    </table>
-    <div class="amt-words">Amount in words: <strong>${numToWords(inv.grandTotal)}</strong></div>
-    ${inv.notes?`<div style="font-size:12px;color:#475569;margin:8px 0"><strong>Notes:</strong> ${esc(inv.notes)}</div>`:''}
-    <div style="display:flex;justify-content:space-between;margin-top:28px;padding-top:18px;border-top:1px solid #e2e8f0">
-      <div>
-        ${p.bankDetails?`<div style="font-size:12px;color:#64748b;margin-bottom:3px;font-weight:600">Bank Details</div><div style="font-size:12px;line-height:1.7">${p.bankDetails.split('\n').map(l=>esc(l.trim())).filter(Boolean).join('<br>')}</div>`:''}
-      </div>
-      <div style="text-align:center">
-        <div style="height:40px"></div>
-        <div style="border-top:1px solid #0f172a;padding-top:5px;font-size:12px;font-weight:700">For BKN RCC SPUN PIPES</div>
-        <div style="font-size:11px;color:#64748b">Authorised Signatory</div>
-      </div>
-    </div>
-    <div class="footer">This is a computer-generated invoice. E. &amp; O.E.${p.gstin?' · GSTIN: '+esc(p.gstin):''}</div>
-  </div>
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Tax Invoice — ${esc(inv.invoiceNo)}</title>
+  <style>${gstInvoiceCSS()}</style></head><body>
+  ${gstInvoiceCardHTML(inv, p, 'Original for Recipient')}
   <div class="no-print" style="text-align:center;padding:16px;display:flex;gap:12px;justify-content:center">
-    <button onclick="window.print()" style="padding:10px 28px;background:#1e40af;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">🖨️ Print / Save as PDF</button>
-    <button onclick="window.close()" style="padding:10px 20px;background:#f1f5f9;color:#374151;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;cursor:pointer">Close</button>
+    <button onclick="window.print()" style="padding:11px 30px;background:#0f2c4c;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">&#128424; Print / Save as PDF</button>
+    <button onclick="window.close()" style="padding:11px 22px;background:#f1f5f9;color:#374151;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;cursor:pointer">Close</button>
   </div>
   </body></html>`;
   const win = window.open('','_blank','width=860,height=920');
