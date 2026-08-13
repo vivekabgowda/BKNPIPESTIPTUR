@@ -5491,9 +5491,10 @@ function renderGSTInvoiceTab() {
     if(gstToDate   && i.invoiceDate > gstToDate)   return false;
     return true;
   });
-  const totalTaxable= filtered.reduce((s,i)=>s+(Number(i.taxableTotal)||0),0);
-  const totalGST    = filtered.reduce((s,i)=>s+(Number(i.gstAmount)||0),0);
-  const totalGrand  = filtered.reduce((s,i)=>s+(Number(i.grandTotal)||0),0);
+  const activeInv   = filtered.filter(i=>!i.cancelled);   // cancelled invoices are excluded from GST totals
+  const totalTaxable= activeInv.reduce((s,i)=>s+(Number(i.taxableTotal)||0),0);
+  const totalGST    = activeInv.reduce((s,i)=>s+(Number(i.gstAmount)||0),0);
+  const totalGrand  = activeInv.reduce((s,i)=>s+(Number(i.grandTotal)||0),0);
   const yearOpts    = [...new Set([year,...allYears])].map(y=>`<option value="${y}" ${gstInvoiceFilter===y?'selected':''}>${y}</option>`).join('');
   // Month dropdown: calendar months (GST filing periods) that have invoices in this FY
   const monthCounts = {};
@@ -5542,21 +5543,24 @@ function renderGSTInvoiceTab() {
           <th style="padding:10px 14px;text-align:right">Grand Total</th>
           <th style="padding:10px 14px;text-align:center">Actions</th>
         </tr></thead>
-        <tbody>${filtered.map(inv=>`<tr style="border-top:1px solid var(--border-light)">
-          <td style="padding:10px 14px;font-weight:600;color:var(--brand)">${esc(inv.invoiceNo)}</td>
+        <tbody>${filtered.map(inv=>{ const cx=inv.cancelled; const strike=cx?'text-decoration:line-through;color:var(--muted)':'';
+          return `<tr style="border-top:1px solid var(--border-light)${cx?';opacity:.6':''}">
+          <td style="padding:10px 14px;font-weight:600;color:var(--brand)">${esc(inv.invoiceNo)}${cx?' <span class="badge badge-red">CANCELLED</span>':''}</td>
           <td style="padding:10px 14px">${fmtDate(inv.invoiceDate)}</td>
           <td style="padding:10px 14px">${esc(inv.customer)}</td>
-          <td style="padding:10px 14px;text-align:right">₹${fmt(inv.taxableTotal)}</td>
-          <td style="padding:10px 14px;text-align:right">₹${fmt(inv.gstAmount)}</td>
-          <td style="padding:10px 14px;text-align:right;font-weight:600">₹${fmt(inv.grandTotal)}</td>
+          <td style="padding:10px 14px;text-align:right;${strike}">₹${fmt(inv.taxableTotal)}</td>
+          <td style="padding:10px 14px;text-align:right;${strike}">₹${fmt(inv.gstAmount)}</td>
+          <td style="padding:10px 14px;text-align:right;font-weight:600;${strike}">₹${fmt(inv.grandTotal)}</td>
           <td style="padding:10px 14px;text-align:center">
-            <div style="display:flex;gap:4px;justify-content:center">
+            <div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap">
               <button class="btn-sm" onclick="openGSTInvoicePrint('${inv.id}')" title="Print/PDF"><i class="ti ti-printer"></i></button>
-              <button class="btn-sm" onclick="openGSTInvoiceModal('${inv.id}')" title="Edit"><i class="ti ti-edit"></i></button>
-              <button class="btn-sm" style="color:var(--danger);border-color:var(--danger)" onclick="delGSTInvoice('${inv.id}')" title="Delete"><i class="ti ti-trash"></i></button>
+              ${cx?`<button class="btn-sm" style="color:var(--success);border-color:var(--success)" onclick="uncancelGSTInvoice('${inv.id}')" title="Restore to active"><i class="ti ti-rotate"></i> Restore</button>`
+                  :`<button class="btn-sm" onclick="openGSTInvoiceModal('${inv.id}')" title="Edit"><i class="ti ti-edit"></i></button>
+                    <button class="btn-sm" style="color:#b45309;border-color:#b45309" onclick="cancelGSTInvoice('${inv.id}')" title="Cancel invoice (keeps the number, excludes from GST totals)"><i class="ti ti-ban"></i> Cancel</button>`}
+              <button class="btn-sm" style="color:var(--danger);border-color:var(--danger)" onclick="delGSTInvoice('${inv.id}')" title="Delete permanently"><i class="ti ti-trash"></i></button>
             </div>
           </td>
-        </tr>`).join('')}</tbody>
+        </tr>`;}).join('')}</tbody>
       </table>
     </div>`}`;
 }
@@ -5583,21 +5587,17 @@ function exportGSTForAuditor() {
     return true;
   });
   if(!filtered.length) { alert('No invoices in this range'); return; }
-  const headers = ['Invoice No','Date','Customer','Customer GSTIN','Supply Type','GST Rate %','Taxable Value','CGST','SGST','IGST','Total GST','Grand Total'];
-  const rows = filtered.map(i=>[
-    i.invoiceNo, i.invoiceDate, i.customer, i.customerGSTIN||'',
-    i.supplyType==='intrastate'?'Intra-state':'Inter-state', i.gstRate||0,
-    Number(i.taxableTotal)||0, Number(i.cgst)||0, Number(i.sgst)||0, Number(i.igst)||0,
-    Number(i.gstAmount)||0, Number(i.grandTotal)||0
-  ]);
-  // Totals row for quick auditor verification
+  const headers = ['Invoice No','Date','Customer','Customer GSTIN','Supply Type','GST Rate %','Taxable Value','CGST','SGST','IGST','Total GST','Grand Total','Status'];
+  // Cancelled invoices are listed (so the number sequence is documented) but with ZERO
+  // tax values, so the TOTAL still reconciles with your GST return.
+  const rows = filtered.map(i=>{ const cx=i.cancelled;
+    return [ i.invoiceNo, i.invoiceDate, i.customer, i.customerGSTIN||'',
+      i.supplyType==='intrastate'?'Intra-state':'Inter-state', i.gstRate||0,
+      cx?0:(Number(i.taxableTotal)||0), cx?0:(Number(i.cgst)||0), cx?0:(Number(i.sgst)||0), cx?0:(Number(i.igst)||0),
+      cx?0:(Number(i.gstAmount)||0), cx?0:(Number(i.grandTotal)||0), cx?'CANCELLED':'Active' ]; });
+  const sumA = f => filtered.reduce((s,i)=>s+(i.cancelled?0:(Number(f(i))||0)),0);
   rows.push(['TOTAL','','','','','',
-    filtered.reduce((s,i)=>s+(Number(i.taxableTotal)||0),0),
-    filtered.reduce((s,i)=>s+(Number(i.cgst)||0),0),
-    filtered.reduce((s,i)=>s+(Number(i.sgst)||0),0),
-    filtered.reduce((s,i)=>s+(Number(i.igst)||0),0),
-    filtered.reduce((s,i)=>s+(Number(i.gstAmount)||0),0),
-    filtered.reduce((s,i)=>s+(Number(i.grandTotal)||0),0)
+    sumA(i=>i.taxableTotal), sumA(i=>i.cgst), sumA(i=>i.sgst), sumA(i=>i.igst), sumA(i=>i.gstAmount), sumA(i=>i.grandTotal), ''
   ]);
   const label = (gstFromDate && gstToDate && gstFromDate.slice(0,7)===gstToDate.slice(0,7))
     ? gstFromDate.slice(0,7) : (gstFromDate||gstToDate ? gstFromDate+'_to_'+gstToDate : 'FY'+gstInvoiceFilter);
@@ -6213,9 +6213,27 @@ async function saveGSTInvoice(id) {
   }
 }
 
+// GST-correct way to void a wrong/cancelled invoice: keep the number & record,
+// exclude it from GST totals + auditor CSV, stamp CANCELLED on print. (Soft update.)
+async function cancelGSTInvoice(id) {
+  const inv = (cache.gst_invoices||[]).find(i=>i.id===id); if(!inv) return;
+  if(inv.cancelled) return;
+  const reason = prompt(`Cancel invoice ${inv.invoiceNo}?\n\nThe invoice number stays in your records (GST requires the number sequence to stay intact), but it will be EXCLUDED from your GST totals and the auditor CSV, and marked CANCELLED on print.\n\nReason (optional):`, '');
+  if(reason===null) return;               // user dismissed the prompt
+  try { await col('gst_invoices').doc(id).update({ cancelled:true, cancelledAt:today(), cancelReason:(reason||'').trim() }); }
+  catch(e){ alert('Could not cancel: '+e.message); }
+}
+async function uncancelGSTInvoice(id) {
+  const inv = (cache.gst_invoices||[]).find(i=>i.id===id); if(!inv) return;
+  if(!confirm(`Restore invoice ${inv.invoiceNo} to active? It will count in GST totals again.`)) return;
+  try { await col('gst_invoices').doc(id).update({ cancelled:false }); }
+  catch(e){ alert('Could not restore: '+e.message); }
+}
 async function delGSTInvoice(id) {
-  if(!confirm('Delete this invoice? This cannot be undone.')) return;
-  try { await col('gst_invoices').doc(id).delete(); } catch(e) { alert('Delete failed: '+e.message); }
+  const inv = (cache.gst_invoices||[]).find(i=>i.id===id);
+  if(!confirm(`Permanently DELETE invoice ${inv?inv.invoiceNo:''}?\n\nFor GST, prefer "Cancel" (keeps the number in sequence). Delete only a genuine mistake that was never issued to a customer.\n\nThis cannot be undone.`)) return;
+  try { await col('gst_invoices').doc(id).delete(); }
+  catch(e){ alert('Delete failed: '+e.message+'\n\nIf deletion is blocked, use "Cancel" instead — it keeps the record but removes it from your GST totals.'); }
 }
 
 // ── Shared premium GST-invoice template (navy/gold, brand-matched). Print/display only. ──
@@ -6294,9 +6312,10 @@ function gstInvoiceCardHTML(inv, p, copyLabel){
           <div class="cmeta">${addr}${phone?'<br>Ph: '+phone:''}${p.gstin?'<br>GSTIN: <b>'+esc(p.gstin)+'</b>':''}${p.pan?'  ·  PAN: '+esc(p.pan):''}</div>
         </div>
       </div>
-      <div class="doctitle"><div class="t">TAX INVOICE</div><div class="copy">${esc(copyLabel||'Original for Recipient')}</div></div>
+      <div class="doctitle"><div class="t">TAX INVOICE</div><div class="copy">${inv.cancelled?'CANCELLED':esc(copyLabel||'Original for Recipient')}</div></div>
     </div>
     <div class="goldbar"></div>
+    ${inv.cancelled?`<div style="position:relative"><div style="position:absolute;top:120px;left:0;right:0;text-align:center;transform:rotate(-18deg);font-size:80px;font-weight:900;color:rgba(220,38,38,.14);letter-spacing:8px;pointer-events:none;z-index:0">CANCELLED</div></div>`:''}
     <div class="body">
       <div class="meta">
         <div><div class="k">Invoice No.</div><div class="v">${esc(inv.invoiceNo)}</div></div>
