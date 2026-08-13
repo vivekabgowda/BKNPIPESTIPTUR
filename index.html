@@ -5965,6 +5965,7 @@ function openQuotationPrint(id) {
     <tr>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${idx+1}</td>
       <td style="padding:7px 10px;border:1px solid #cbd5e1">${esc(gstItemDesc(item.pipeType))}</td>
+      <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${esc(item.hsn||'6810')}</td>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">${item.qty}</td>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:center">Nos</td>
       <td style="padding:7px 10px;border:1px solid #cbd5e1;text-align:right">₹${fmt(item.rate)}</td>
@@ -6009,6 +6010,7 @@ function openQuotationPrint(id) {
       <thead><tr>
         <th style="width:36px">#</th>
         <th>Description</th>
+        <th style="width:64px">HSN</th>
         <th style="width:60px">Qty</th>
         <th style="width:50px">Unit</th>
         <th style="width:100px;text-align:right">Rate (₹)</th>
@@ -6017,7 +6019,7 @@ function openQuotationPrint(id) {
       <tbody>
         ${rows}
         ${(()=>{ const t=quoteTotals(q); const sub=(lbl,val,strong)=>`<tr${strong?' style="background:#f0fdfa"':''}>
-            <td colspan="5" style="padding:${strong?'9px':'6px'} 10px;border:${strong?'2px':'1px'} solid ${strong?'#0f766e':'#cbd5e1'};text-align:right;font-weight:${strong?700:600};font-size:${strong?'14px':'12px'}">${lbl}</td>
+            <td colspan="6" style="padding:${strong?'9px':'6px'} 10px;border:${strong?'2px':'1px'} solid ${strong?'#0f766e':'#cbd5e1'};text-align:right;font-weight:${strong?700:600};font-size:${strong?'14px':'12px'}">${lbl}</td>
             <td style="padding:${strong?'9px':'6px'} 10px;border:${strong?'2px':'1px'} solid ${strong?'#0f766e':'#cbd5e1'};text-align:right;font-weight:${strong?700:600};font-size:${strong?'14px':'12px'}${strong?';color:#0f766e':''}">₹${fmt(val)}</td></tr>`;
           if(t.mode==='na') return sub('Total', t.grand, true);
           return sub('Taxable Value', t.taxable) + sub('CGST @ 9%', t.gst/2) + sub('SGST @ 9%', t.gst/2) + sub(t.mode==='inclusive'?'Grand Total (incl. GST)':'Grand Total (incl. 18% GST)', t.grand, true);
