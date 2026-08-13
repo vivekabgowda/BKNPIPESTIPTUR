@@ -3487,13 +3487,27 @@ function switchStaffTab(tab) {
   }
 }
 
+// The salary cycle that CONTAINS today, for a given salary day (timezone-safe, pure string math).
+function currentStaffPeriod(salaryDay) {
+  const t = today();                       // 'YYYY-MM-DD'
+  const day = Number(t.slice(8,10));
+  let y = Number(t.slice(0,4)), m = Number(t.slice(5,7));
+  if(day < salaryDay) { m--; if(m < 1){ m = 12; y--; } }   // cycle started last month
+  return staffPeriod(salaryDay, y+'-'+String(m).padStart(2,'0'));
+}
 function buildStaffOverview() {
   const att=[...cache.attendance];
   const advances=[...cache.advances].sort((a,b)=>b.date.localeCompare(a.date));
-  const summary=STAFF.map(s=>({
-    name:s, days:att.filter(a=>a.present&&a.staff===s).length,
-    totalAdv:advances.filter(a=>a.staff===s).reduce((sum,a)=>sum+(Number(a.amount)||0),0)
-  }));
+  // Per-staff figures for the CURRENT salary cycle (based on each staff's salary day)
+  const summary=STAFF.map(s=>{
+    const salaryDay = Number((STAFF_PAY_CONFIG[s]||{}).salaryDay) || 1;
+    const period = currentStaffPeriod(salaryDay);
+    return {
+      name:s, period,
+      days:    att.filter(a=>a.present && a.staff===s && inRange(a.date, period.from, period.to)).length,
+      totalAdv:advances.filter(a=>a.staff===s && inRange(a.date, period.from, period.to)).reduce((sum,a)=>sum+(Number(a.amount)||0),0)
+    };
+  });
   return `
     <div class="grid-3">
       ${summary.map(s=>`<div class="card">
@@ -3505,6 +3519,7 @@ function buildStaffOverview() {
             <div style="font-size:12px;color:#888">${STAFF.indexOf(s.name) < 2 ? 'Driver' : 'Helper'}</div>
           </div>
         </div>
+        <div style="font-size:11px;color:#888;margin-bottom:8px"><i class="ti ti-calendar-event" style="font-size:12px"></i> This cycle: ${fmtDate(s.period.from)} – ${fmtDate(s.period.to)}</div>
         <div style="display:flex;gap:8px;margin-bottom:10px">
           <div class="metric" style="flex:1"><div class="metric-label">Days present</div><div class="metric-value" style="font-size:20px">${s.days}</div></div>
           <div class="metric" style="flex:1"><div class="metric-label">Advances</div><div class="metric-value" style="font-size:16px">₹${fmt(s.totalAdv)}</div></div>
