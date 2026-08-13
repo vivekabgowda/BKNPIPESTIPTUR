@@ -5745,20 +5745,31 @@ function renderQuotationTab() {
           <th style="padding:10px 14px;text-align:left">Quotation No.</th>
           <th style="padding:10px 14px;text-align:left">Date</th>
           <th style="padding:10px 14px;text-align:left">Customer</th>
+          <th style="padding:10px 14px;text-align:left">Status</th>
           <th style="padding:10px 14px;text-align:left">Valid Until</th>
-          <th style="padding:10px 14px;text-align:right">Total</th>
+          <th style="padding:10px 14px;text-align:right">Grand Total</th>
           <th style="padding:10px 14px;text-align:center">Actions</th>
         </tr></thead>
         <tbody>${list.map(q=>{
           const expired = q.validUntil && q.validUntil < today();
+          const t = quoteTotals(q);
+          const st = q.status||'open';
           return `<tr style="border-top:1px solid var(--border-light)${expired?';opacity:.6':''}">
             <td style="padding:10px 14px;font-weight:600;color:var(--brand)">${esc(q.quotationNo)}</td>
             <td style="padding:10px 14px">${fmtDate(q.date)}</td>
             <td style="padding:10px 14px">${esc(q.customer)}</td>
+            <td style="padding:10px 14px">
+              <select onchange="setQuotationStatus('${q.id}',this.value)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px;font-family:var(--font)">
+                ${Object.keys(QUOTE_STATUSES).map(k=>`<option value="${k}" ${st===k?'selected':''}>${QUOTE_STATUSES[k].label}</option>`).join('')}
+              </select>
+            </td>
             <td style="padding:10px 14px">${q.validUntil?fmtDate(q.validUntil)+(expired?' <span style="font-size:11px;color:var(--danger)">(expired)</span>':''):'—'}</td>
-            <td style="padding:10px 14px;text-align:right;font-weight:600">₹${fmt(q.total)}</td>
+            <td style="padding:10px 14px;text-align:right;font-weight:600">₹${fmt(t.grand)}${t.mode!=='na'?`<div style="font-size:10px;color:var(--muted);font-weight:400">${t.mode==='inclusive'?'incl.':'incl.'} GST</div>`:''}</td>
             <td style="padding:10px 14px;text-align:center">
-              <div style="display:flex;gap:4px;justify-content:center">
+              <div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap">
+                <button class="btn-sm" style="color:#25d366;border-color:#25d366" onclick="shareQuotation('${q.id}')" title="Send on WhatsApp"><i class="ti ti-brand-whatsapp"></i></button>
+                <button class="btn-sm" onclick="convertQuotationToOrder('${q.id}')" title="Convert to Order"><i class="ti ti-clipboard-plus"></i></button>
+                <button class="btn-sm" onclick="convertQuotationToInvoice('${q.id}')" title="Convert to GST Invoice"><i class="ti ti-file-invoice"></i></button>
                 <button class="btn-sm" onclick="openQuotationPrint('${q.id}')" title="Print/PDF"><i class="ti ti-printer"></i></button>
                 <button class="btn-sm" onclick="openQuotationModal('${q.id}')" title="Edit"><i class="ti ti-edit"></i></button>
                 <button class="btn-sm" style="color:var(--danger);border-color:var(--danger)" onclick="delQuotation('${q.id}')" title="Delete"><i class="ti ti-trash"></i></button>
@@ -5770,6 +5781,63 @@ function renderQuotationTab() {
     </div>`}`;
 }
 
+// GST breakup for a quotation (18% for RCC pipes). Pure — no writes.
+function quoteTotals(q){
+  const base=Number(q.total)||0, rate=18, mode=q.gstMode||'extra';
+  if(mode==='na')         return { taxable:base, gst:0, grand:base, rate:0, mode };
+  if(mode==='inclusive'){ const taxable=base/(1+rate/100); return { taxable, gst:base-taxable, grand:base, rate, mode }; }
+  const gst=base*rate/100; return { taxable:base, gst, grand:base+gst, rate, mode };
+}
+const QUOTE_STATUSES = { open:{label:'Open',cls:'badge-gray'}, sent:{label:'Sent',cls:'badge-blue'}, accepted:{label:'Accepted',cls:'badge-green'}, rejected:{label:'Rejected',cls:'badge-red'} };
+async function setQuotationStatus(id, status){
+  try { await col('quotations').doc(id).update({ status }); }
+  catch(e){ alert('Could not update status: '+e.message); }
+}
+// Share the quotation on WhatsApp (opens wa.me; sends nothing on its own).
+function shareQuotation(id){
+  const q=(cache.quotations||[]).find(x=>x.id===id); if(!q) return;
+  const p=cache.gst_profile||{}, t=quoteTotals(q), L=[];
+  L.push('*BKN RCC SPUN PIPES* — Quotation');
+  if(p.phone) L.push('Ph: '+p.phone.split(/[\n,]/).map(s=>s.trim()).filter(Boolean).join(' / '));
+  L.push('', `Quotation No: *${q.quotationNo}*`, `Date: ${fmtDate(q.date)}`+(q.validUntil?`  |  Valid until: ${fmtDate(q.validUntil)}`:''), `To: ${q.customer}`, '');
+  (q.items||[]).forEach(it=>L.push(`• ${it.pipeType} × ${it.qty} @ ₹${fmt(it.rate)} = ₹${fmt(it.amount)}`));
+  L.push('');
+  if(t.mode==='na'){ L.push(`*Total: ₹${fmt(t.grand)}*`); }
+  else { L.push(`Taxable: ₹${fmt(t.taxable)}`, `GST @18%: ₹${fmt(t.gst)}`, `*Grand Total: ₹${fmt(t.grand)}*`+(t.mode==='inclusive'?' (incl. GST)':'')); }
+  const gstTxt={extra:'GST 18% extra',inclusive:'GST included',na:'GST N/A'}[t.mode];
+  const trTxt={extra:'Transport extra',included:'Transport included'}[q.transportMode||'extra'];
+  L.push('', 'Terms: '+gstTxt+'; '+trTxt+(q.paymentTerms?('; Payment: '+q.paymentTerms):''));
+  if(q.notes) L.push('Note: '+q.notes);
+  L.push('', 'Thank you 🙏');
+  const phone=(q.phone||'').split(',')[0].replace(/\D/g,'');
+  window.open((phone?`https://wa.me/91${phone}`:'https://wa.me/')+`?text=${encodeURIComponent(L.join('\n'))}`, '_blank');
+}
+// Convert to a NEW order — prefills the order form via its draft mechanism; owner reviews & saves.
+function convertQuotationToOrder(id){
+  const q=(cache.quotations||[]).find(x=>x.id===id); if(!q) return;
+  const t=quoteTotals(q), pipes={};
+  (q.items||[]).forEach(it=>{ if(PIPE_TYPES.includes(it.pipeType)&&Number(it.qty)>0) pipes[it.pipeType]=(pipes[it.pipeType]||0)+Number(it.qty); });
+  if(!Object.keys(pipes).length){ alert('This quotation has no recognised pipe types to convert into an order.'); return; }
+  if(!confirm(`Create a NEW order for ${q.customer} from this quotation?\nYou can review and edit it — nothing is saved until you press "Save order".`)) return;
+  const draft={ customer:q.customer, phone:q.phone||'', address:(q.address||''), pipes, total:Math.round(t.grand), advance:0, balance:Math.round(t.grand), orderDate:today(), _totalLocked:true };
+  localStorage.setItem('hpf_order_draft', JSON.stringify(draft));
+  closeModal(); goto('orders'); openOrderModal();
+}
+// Convert to a NEW GST invoice — opens the invoice form seeded from the quote; owner reviews & saves.
+function convertQuotationToInvoice(id){
+  const q=(cache.quotations||[]).find(x=>x.id===id); if(!q) return;
+  const items=(q.items||[]).filter(it=>it.pipeType&&Number(it.qty)>0);
+  if(!items.length){ alert('This quotation has no items to convert into an invoice.'); return; }
+  if(!confirm(`Create a NEW GST invoice for ${q.customer} from this quotation?\nReview and edit it — nothing is saved until you press "Save Invoice".`)) return;
+  closeModal(); gstBillingTab='invoices'; goto('gstbilling'); openGSTInvoiceModal();
+  setTimeout(()=>{
+    const c=document.getElementById('gi-customer'); if(c) c.value=q.customer||'';
+    const a=document.getElementById('gi-caddr');    if(a) a.value=q.address||'';
+    const tb=document.getElementById('gst-items-tbody'); if(tb){ tb.innerHTML=''; _gstRowSeq=0; }
+    items.forEach(it=>gstAddRow(it.pipeType, it.qty, it.rate));
+    if(typeof gstRecalcAll==='function') gstRecalcAll();
+  }, 0);
+}
 function openQuotationModal(id) {
   const q     = id ? (cache.quotations||[]).find(x=>x.id===id) : null;
   const qNo   = q ? q.quotationNo : nextQuotationNo();
@@ -5822,7 +5890,17 @@ function openQuotationModal(id) {
           </select>
         </div>
       </div>
-      <div class="form-group"><label>Payment Terms <span style="font-size:11px;color:var(--muted)">(optional)</span></label><input type="text" id="qt-payterms" value="${esc(q?.paymentTerms||'')}" placeholder="e.g. 50% advance, balance before delivery"></div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Payment Terms <span style="font-size:11px;color:var(--muted)">(optional)</span></label><input type="text" id="qt-payterms" value="${esc(q?.paymentTerms||'')}" placeholder="e.g. 50% advance, balance before delivery"></div>
+        <div class="form-group"><label>Status</label>
+          <select id="qt-status">
+            <option value="open"     ${(!q||q.status==='open'||!q.status)?'selected':''}>Open</option>
+            <option value="sent"     ${q&&q.status==='sent'?'selected':''}>Sent</option>
+            <option value="accepted" ${q&&q.status==='accepted'?'selected':''}>Accepted</option>
+            <option value="rejected" ${q&&q.status==='rejected'?'selected':''}>Rejected</option>
+          </select>
+        </div>
+      </div>
       <div class="form-group"><label>Notes <span style="font-size:11px;color:var(--muted)">(optional)</span></label><input type="text" id="qt-notes" value="${esc(q?.notes||'')}" placeholder="e.g. Price valid for 15 days"></div>
     </div>
     <div class="modal-footer">
@@ -5862,6 +5940,7 @@ async function saveQuotation(id) {
     gstMode:       document.getElementById('qt-gst')?.value||'extra',
     transportMode: document.getElementById('qt-transport')?.value||'extra',
     paymentTerms:  document.getElementById('qt-payterms')?.value.trim()||'',
+    status:        document.getElementById('qt-status')?.value||'open',
     notes: document.getElementById('qt-notes')?.value.trim()||''
   };
   try {
@@ -5937,13 +6016,15 @@ function openQuotationPrint(id) {
       </tr></thead>
       <tbody>
         ${rows}
-        <tr style="background:#f0fdfa">
-          <td colspan="5" style="padding:9px 10px;border:2px solid #0f766e;text-align:right;font-weight:700;font-size:14px">Total</td>
-          <td style="padding:9px 10px;border:2px solid #0f766e;text-align:right;font-weight:700;font-size:14px;color:#0f766e">₹${fmt(q.total)}</td>
-        </tr>
+        ${(()=>{ const t=quoteTotals(q); const sub=(lbl,val,strong)=>`<tr${strong?' style="background:#f0fdfa"':''}>
+            <td colspan="5" style="padding:${strong?'9px':'6px'} 10px;border:${strong?'2px':'1px'} solid ${strong?'#0f766e':'#cbd5e1'};text-align:right;font-weight:${strong?700:600};font-size:${strong?'14px':'12px'}">${lbl}</td>
+            <td style="padding:${strong?'9px':'6px'} 10px;border:${strong?'2px':'1px'} solid ${strong?'#0f766e':'#cbd5e1'};text-align:right;font-weight:${strong?700:600};font-size:${strong?'14px':'12px'}${strong?';color:#0f766e':''}">₹${fmt(val)}</td></tr>`;
+          if(t.mode==='na') return sub('Total', t.grand, true);
+          return sub('Taxable Value', t.taxable) + sub('CGST @ 9%', t.gst/2) + sub('SGST @ 9%', t.gst/2) + sub(t.mode==='inclusive'?'Grand Total (incl. GST)':'Grand Total (incl. 18% GST)', t.grand, true);
+        })()}
       </tbody>
     </table>
-    <div style="font-size:12px;color:#475569;margin:8px 0;font-style:italic">Amount in words: <strong>${numToWords(q.total)}</strong></div>
+    <div style="font-size:12px;color:#475569;margin:8px 0;font-style:italic">Amount in words: <strong>${numToWords(quoteTotals(q).grand)}</strong></div>
     ${(()=>{ const gstTxt={extra:'GST 18% extra',inclusive:'GST included in the above prices',na:'Not applicable'}[q.gstMode||'extra'];
       const trTxt={extra:'Transportation charges extra',included:'Transportation included'}[q.transportMode||'extra'];
       const terms=[];
