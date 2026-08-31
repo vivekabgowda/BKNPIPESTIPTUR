@@ -192,7 +192,7 @@ const COL_PREFIX = 'poles_';   // keeps this app's data separate inside the same
 // ── STATE ────────────────────────────────────────────────────────────────────
 let firestoreDb = null;
 let currentPage = 'dashboard';
-let cache = { production:[], orders:[], materials:[], advances:[], gst_invoices:[], pole_rates:{}, mat_rates:{}, gst_profile:{}, opening:{} };
+let cache = { production:[], orders:[], materials:[], advances:[], gst_invoices:[], quotations:[], pole_rates:{}, mat_rates:{}, gst_profile:{}, opening:{} };
 let listeners = [];
 let salesTab = 'orders';
 let salesRange = 'all';        // all | month | lastmonth | year | custom
@@ -203,6 +203,7 @@ let advTab = 'labour';
 let advMonth = ''; // '' = all months, else 'YYYY-MM'
 let gstFromDate = '', gstToDate = '', gstInvoiceFilter = '';
 let _gstRowSeq = 0;
+let polesGstTab = 'invoices';   // 'invoices' | 'quotations'
 
 // ── UTILS ────────────────────────────────────────────────────────────────────
 function today(){ return new Date().toISOString().slice(0,10); }
@@ -272,7 +273,7 @@ function doLogout(){ firebase.auth().signOut(); }
 
 async function startApp(){
   document.getElementById('app').style.display='block';
-  const names = ['production','orders','materials','advances','gst_invoices'];
+  const names = ['production','orders','materials','advances','gst_invoices','quotations'];
   const metaDocs = ['pole_rates','mat_rates','gst_profile','opening'];
   await Promise.all([
     ...names.map(async n=>{ try{ const s=await col(n).get(); cache[n]=s.docs.map(d=>({id:d.id,...d.data()})); }catch(e){ cache[n]=[]; } }),
@@ -995,8 +996,227 @@ function nextInvoiceNo(year){
   const nums = invs.map(i=>{ const p=i.invoiceNo.split('/'); return parseInt(p[p.length-1])||0; });
   return `BEP/${year}/${String(Math.max(...nums)+1).padStart(3,'0')}`;
 }
+// ── QUOTATIONS (poles) ──────────────────────────────────────────────────────
+const QUOTE_STATUSES = { open:{label:'Open'}, sent:{label:'Sent'}, accepted:{label:'Accepted'}, rejected:{label:'Rejected'} };
+function nextQuotationNo(year){
+  const all=(cache.quotations||[]).filter(q=>q.quotationNo&&q.quotationNo.includes('/'+year+'/'));
+  if(!all.length) return `BEP/QTN/${year}/001`;
+  const nums=all.map(q=>{const p=q.quotationNo.split('/');return parseInt(p[p.length-1])||0;});
+  return `BEP/QTN/${year}/${String(Math.max(...nums)+1).padStart(3,'0')}`;
+}
+function quoteTotals(q){
+  const base=Number(q.total)||0, rate=Number(q.gstRate||18), mode=q.gstMode||'extra';
+  if(mode==='na')        return {taxable:base,gst:0,grand:base,rate:0,mode};
+  if(mode==='inclusive'){const taxable=base/(1+rate/100);return {taxable,gst:base-taxable,grand:base,rate,mode};}
+  const gst=base*rate/100; return {taxable:base,gst,grand:base+gst,rate,mode};
+}
+async function setQuotationStatus(id,status){ try{ await col('quotations').doc(id).update({status}); }catch(e){ alert('Update failed: '+e.message); } }
+async function delQuotation(id){ if(confirm('Delete this quotation?')) await col('quotations').doc(id).delete(); }
+function renderQuotationTab(){
+  const list=[...(cache.quotations||[])].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  document.getElementById('gst-tab-content').innerHTML = list.length? `
+    <div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table>
+      <thead><tr><th>Quotation No.</th><th>Date</th><th>Customer</th><th>Status</th><th style="text-align:right">Grand Total</th><th></th></tr></thead>
+      <tbody>${list.map(q=>{ const t=quoteTotals(q); const st=q.status||'open';
+        return `<tr>
+          <td style="font-weight:700;color:var(--brand-mid)">${esc(q.quotationNo)}</td>
+          <td style="font-size:12px;white-space:nowrap">${fmtDate(q.date)}</td>
+          <td>${esc(q.customer)}</td>
+          <td><select onchange="setQuotationStatus('${q.id}',this.value)" style="font-size:12px;padding:3px 6px;border:1px solid var(--border);border-radius:6px">${Object.keys(QUOTE_STATUSES).map(k=>`<option value="${k}" ${st===k?'selected':''}>${QUOTE_STATUSES[k].label}</option>`).join('')}</select></td>
+          <td style="text-align:right;font-weight:700">₹${fmt(t.grand)}${t.mode!=='na'?`<div style="font-size:10px;color:var(--muted);font-weight:400">incl. GST</div>`:''}</td>
+          <td style="text-align:right;white-space:nowrap">
+            <button class="btn-sm" style="color:#16a34a;border-color:#16a34a" onclick="shareQuotation('${q.id}')" title="WhatsApp"><i class="ti ti-brand-whatsapp"></i></button>
+            <button class="btn-sm" onclick="convertQuotationToInvoice('${q.id}')" title="Convert to invoice"><i class="ti ti-file-invoice"></i></button>
+            <button class="btn-sm" onclick="printQuotation('${q.id}')" title="Print"><i class="ti ti-printer"></i></button>
+            <button class="btn-sm" onclick="openQuotationModal('${q.id}')" title="Edit"><i class="ti ti-edit"></i></button>
+            <button class="btn-sm btn-danger" onclick="delQuotation('${q.id}')" title="Delete"><i class="ti ti-trash"></i></button>
+          </td></tr>`;}).join('')}</tbody></table></div></div>`
+    : `<div class="card empty-state"><i class="ti ti-file-description"></i>No quotations yet — tap "+ New quotation"</div>`;
+}
+function openQuotationModal(id){
+  const q = id ? (cache.quotations||[]).find(x=>x.id===id) : null;
+  const year = gstFinYear(q?q.date:today());
+  const qNo = q ? q.quotationNo : nextQuotationNo(year);
+  _gstRowSeq = 0;
+  modal(`<div class="modal" style="width:680px">
+    <div class="modal-header"><h3>${q?'Edit':'New'} quotation</h3><button onclick="closeModal()" style="border:none;background:none;font-size:22px;color:#aaa">&times;</button></div>
+    <div class="modal-body">
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Quotation No.</label><input type="text" id="qt-no" value="${esc(qNo)}"></div>
+        <div class="form-group"><label>Date</label><input type="date" id="qt-date" value="${q?q.date:today()}"></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Customer *</label><input type="text" id="qt-customer" value="${esc(q?.customer||'')}"></div>
+        <div class="form-group"><label>Valid until</label><input type="date" id="qt-valid" value="${q?.validUntil||''}"></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Phone</label><input type="text" id="qt-phone" value="${esc(q?.phone||'')}"></div>
+        <div class="form-group"><label>Address</label><input type="text" id="qt-addr" value="${esc(q?.address||'')}"></div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:8px;overflow-x:auto;margin-bottom:10px">
+        <table style="min-width:430px"><thead><tr><th>Item</th><th>Qty</th><th>Rate (₹)</th><th style="text-align:right">Amount</th><th></th></tr></thead>
+          <tbody id="gst-items-tbody"></tbody></table>
+        <button type="button" onclick="gstAddRow()" style="margin:8px;font-size:12px;padding:5px 12px;border:1px dashed var(--brand-mid);background:var(--brand-light);color:var(--brand-mid);border-radius:6px">+ Add item</button>
+      </div>
+      <input type="hidden" id="gi-gstrate" value="18">
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:13.5px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between"><span>Taxable</span><strong id="gi-taxable">₹0</strong></div>
+        <div style="display:flex;justify-content:space-between"><span>GST 18%</span><strong id="gi-gst">₹0</strong></div>
+        <div style="display:flex;justify-content:space-between;font-size:15px;margin-top:4px"><span style="font-weight:700">Grand Total</span><strong id="gi-grand" style="color:var(--brand-mid)">₹0</strong></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>GST</label><select id="qt-gst"><option value="extra" ${(!q||q.gstMode==='extra'||!q.gstMode)?'selected':''}>GST 18% extra</option><option value="inclusive" ${q&&q.gstMode==='inclusive'?'selected':''}>GST included</option><option value="na" ${q&&q.gstMode==='na'?'selected':''}>Not applicable</option></select></div>
+        <div class="form-group"><label>Transportation</label><select id="qt-transport"><option value="extra" ${(!q||q.transportMode==='extra'||!q.transportMode)?'selected':''}>Transport extra</option><option value="included" ${q&&q.transportMode==='included'?'selected':''}>Transport included</option></select></div>
+      </div>
+      <div class="form-row cols-2">
+        <div class="form-group"><label>Payment terms</label><input type="text" id="qt-payterms" value="${esc(q?.paymentTerms||'')}" placeholder="e.g. 50% advance with PO"></div>
+        <div class="form-group"><label>Status</label><select id="qt-status">${Object.keys(QUOTE_STATUSES).map(k=>`<option value="${k}" ${((q&&q.status)||'open')===k?'selected':''}>${QUOTE_STATUSES[k].label}</option>`).join('')}</select></div>
+      </div>
+      <div class="form-group"><label>Notes</label><input type="text" id="qt-notes" value="${esc(q?.notes||'')}"></div>
+    </div>
+    <div class="modal-footer"><button onclick="closeModal()">Cancel</button><button class="btn-primary" onclick="saveQuotation('${id||''}')">Save quotation</button></div>
+  </div>`);
+  const items = q?(q.items||[]):[]; if(items.length) items.forEach(it=>gstAddRow(it.desc,it.qty,it.rate)); else gstAddRow();
+  setTimeout(gstRecalcAll,0);
+}
+async function saveQuotation(id){
+  const quotationNo=document.getElementById('qt-no').value.trim();
+  const date=document.getElementById('qt-date').value;
+  const customer=document.getElementById('qt-customer').value.trim();
+  if(!quotationNo||!date||!customer){ alert('Quotation no, date and customer required'); return; }
+  const items=[];
+  document.querySelectorAll('#gst-items-tbody tr[id^="gst-row-"]').forEach(row=>{
+    const i=row.id.replace('gst-row-','');
+    const desc=document.getElementById('gi-desc-'+i)?.value.trim();
+    const qty=Number(document.getElementById('gi-qty-'+i)?.value)||0;
+    const rate=Number(document.getElementById('gi-rate-'+i)?.value)||0;
+    if(desc&&qty>0) items.push({desc,qty,rate,amount:qty*rate,hsn:'6810'});
+  });
+  if(!items.length){ alert('Add at least one item'); return; }
+  const total=items.reduce((s,x)=>s+x.amount,0);
+  const data={ quotationNo, date, customer,
+    phone:document.getElementById('qt-phone').value.trim(),
+    address:document.getElementById('qt-addr').value.trim(),
+    validUntil:document.getElementById('qt-valid').value||'',
+    items, total, gstRate:18,
+    gstMode:document.getElementById('qt-gst').value||'extra',
+    transportMode:document.getElementById('qt-transport').value||'extra',
+    paymentTerms:document.getElementById('qt-payterms').value.trim()||'',
+    status:document.getElementById('qt-status').value||'open',
+    notes:document.getElementById('qt-notes').value.trim()||'' };
+  await col('quotations').doc(id||uid()).set(data);
+  closeModal();
+}
+function shareQuotation(id){
+  const q=(cache.quotations||[]).find(x=>x.id===id); if(!q) return;
+  const p=cache.gst_profile||{}, t=quoteTotals(q), L=[];
+  L.push('*BKN ELECTRIC POLES, Kunigal* — Quotation');
+  if(p.phone) L.push('Ph: '+p.phone.split(/[\n,]/).map(s=>s.trim()).filter(Boolean).join(' / '));
+  L.push('', `Quotation No: *${q.quotationNo}*`, `Date: ${fmtDate(q.date)}`+(q.validUntil?`  |  Valid until: ${fmtDate(q.validUntil)}`:''), `To: ${q.customer}`, '');
+  (q.items||[]).forEach(it=>L.push(`• ${it.desc} × ${it.qty} @ ₹${fmt(it.rate)} = ₹${fmt(it.amount)}`));
+  L.push('');
+  if(t.mode==='na'){ L.push(`*Total: ₹${fmt(t.grand)}*`); }
+  else { L.push(`Taxable: ₹${fmt(t.taxable)}`, `GST @18%: ₹${fmt(t.gst)}`, `*Grand Total: ₹${fmt(t.grand)}*`+(t.mode==='inclusive'?' (incl. GST)':'')); }
+  const gstTxt={extra:'GST 18% extra',inclusive:'GST included',na:'GST N/A'}[t.mode];
+  const trTxt={extra:'Transport extra',included:'Transport included'}[q.transportMode||'extra'];
+  L.push('', 'Terms: '+gstTxt+'; '+trTxt+(q.paymentTerms?('; Payment: '+q.paymentTerms):''));
+  if(q.notes) L.push('Note: '+q.notes);
+  L.push('', 'Thank you 🙏');
+  const phone=(q.phone||'').split(',')[0].replace(/\D/g,'');
+  window.open((phone?`https://wa.me/91${phone}`:'https://wa.me/')+`?text=${encodeURIComponent(L.join('\n'))}`,'_blank');
+}
+function convertQuotationToInvoice(id){
+  const q=(cache.quotations||[]).find(x=>x.id===id); if(!q) return;
+  const items=(q.items||[]).filter(it=>it.desc&&Number(it.qty)>0);
+  if(!items.length){ alert('This quotation has no items.'); return; }
+  if(!confirm(`Create a NEW invoice for ${q.customer} from this quotation? Review & save — nothing is saved until you press Save.`)) return;
+  polesGstTab='invoices'; closeModal(); openGSTModal();
+  setTimeout(()=>{
+    const c=document.getElementById('gi-customer'); if(c) c.value=q.customer||'';
+    const a=document.getElementById('gi-caddr'); if(a) a.value=q.address||'';
+    const tb=document.getElementById('gst-items-tbody'); if(tb){ tb.innerHTML=''; _gstRowSeq=0; }
+    items.forEach(it=>gstAddRow(it.desc,it.qty,it.rate));
+    if(typeof gstRecalcAll==='function') gstRecalcAll();
+  },0);
+}
+function printQuotation(id){
+  const q=(cache.quotations||[]).find(x=>x.id===id); if(!q) return;
+  const p=cache.gst_profile||{}, t=quoteTotals(q);
+  const addr=(p.address||'Kunigal, Tumkur District, Karnataka').split('\n').map(l=>esc(l.trim())).filter(Boolean).join(', ');
+  const phone=p.phone?p.phone.split(/[\n,]/).map(s=>s.trim()).filter(Boolean).join(' / '):'';
+  const rows=(q.items||[]).map((it,i)=>`<tr><td style="text-align:center">${i+1}</td><td>${esc(it.desc)}</td><td style="text-align:center">${esc(it.hsn||'6810')}</td><td style="text-align:center">${it.qty}</td><td style="text-align:center">Nos</td><td style="text-align:right">₹${fmt(it.rate)}</td><td style="text-align:right">₹${fmt(it.amount)}</td></tr>`).join('');
+  const totRows = t.mode==='na'
+    ? `<div class="tr grand"><span>Total</span><span>₹${fmt(t.grand)}</span></div>`
+    : `<div class="tr"><span>Taxable Value</span><span>₹${fmt(t.taxable)}</span></div><div class="tr"><span>CGST @ 9%</span><span>₹${fmt(t.gst/2)}</span></div><div class="tr"><span>SGST @ 9%</span><span>₹${fmt(t.gst/2)}</span></div><div class="tr grand"><span>Grand Total (incl. 18% GST)</span><span>₹${fmt(t.grand)}</span></div>`;
+  const gstTxt={extra:'GST 18% extra',inclusive:'GST included in the above prices',na:'Not applicable'}[t.mode];
+  const trTxt={extra:'Transportation charges extra',included:'Transportation included'}[q.transportMode||'extra'];
+  const html=`<!doctype html><html><head><meta charset="utf-8"><title>Quotation ${esc(q.quotationNo)}</title><style>
+    *{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',system-ui,Arial,sans-serif;color:#1f2937;background:#eef1f5;padding:18px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .w{max-width:820px;margin:0 auto;background:#fff;border:1px solid #d9dee6}
+    .mast{background:#0f2c4c;color:#fff;padding:20px 26px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+    .brand{display:flex;gap:14px;align-items:center}.logo{width:54px;height:54px;flex:none;border-radius:50%;background:#fff;color:#0f2c4c;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;font-family:Georgia,serif;border:2px solid #b7902e}
+    .cname{font-family:Georgia,serif;font-size:21px;font-weight:700;line-height:1.12}.ctag{font-size:10.5px;color:#c7d3e0;margin-top:3px}.cmeta{font-size:11px;color:#dbe4ee;margin-top:6px;line-height:1.55}
+    .t{font-size:20px;font-weight:800;letter-spacing:2px;text-align:right}.copy{display:inline-block;margin-top:7px;background:#b7902e;color:#0f2c4c;font-size:9px;font-weight:800;padding:3px 9px;border-radius:3px}
+    .gold{height:3px;background:#b7902e}.body{padding:18px 26px 24px}
+    .meta{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:16px}.meta>div{padding:8px 12px;border-right:1px solid #eef1f5}.meta>div:last-child{border-right:none}.k{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:#8592a3}.v{font-size:12.5px;font-weight:700;margin-top:2px}
+    .card{border:1px solid #e2e8f0;border-radius:6px;padding:12px 15px;margin-bottom:14px}.h{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:#0f2c4c;margin-bottom:6px;border-bottom:2px solid #b7902e;display:inline-block;padding-bottom:2px}.pname{font-size:14px;font-weight:700}.psub{font-size:11.5px;color:#556;margin-top:2px;line-height:1.5}
+    table{width:100%;border-collapse:collapse;font-size:12px}thead th{background:#0f2c4c;color:#fff;padding:9px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;text-align:left;font-weight:600}tbody td{padding:8px 10px;border-bottom:1px solid #e8ecf1}tbody tr:nth-child(even){background:#f7f9fb}
+    .tot{display:flex;justify-content:flex-end}.totbox{width:320px;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-top:12px;font-size:12.5px}.tr{display:flex;justify-content:space-between;padding:6px 13px;border-bottom:1px solid #eef1f5}.tr.grand{background:#0f2c4c;color:#fff;font-size:15px;font-weight:800;border-top:2px solid #b7902e;padding:10px 13px}
+    .words{background:#f4f6f9;border-left:3px solid #b7902e;padding:9px 13px;font-size:12px;margin:14px 0}.terms{font-size:11px;color:#33465c;line-height:1.9}
+    .foot{display:flex;justify-content:flex-end;margin-top:22px}.sign{text-align:center}.co{font-weight:700;font-size:12px;border-top:1px solid #33465c;padding-top:5px}
+    .fbar{text-align:center;font-size:10px;color:#8592a3;padding:9px;background:#f7f9fb;border-top:1px solid #eef1f5}
+    @media print{body{background:#fff;padding:0}.w{border:none}.no-print{display:none!important}}
+  </style></head><body>
+  <div class="w">
+    <div class="mast">
+      <div class="brand"><div class="logo">BKN</div><div>
+        <div class="cname">BKN ELECTRIC POLES</div>
+        <div class="ctag">Manufacturers of PSC / PSCC Spun Concrete Electric Poles · Conforming to IS 1678</div>
+        <div class="cmeta">${addr}${phone?'<br>Ph: '+phone:''}${p.gstin?'<br>GSTIN: <b>'+esc(p.gstin)+'</b>':''}</div>
+      </div></div>
+      <div><div class="t">QUOTATION</div><div class="copy">FOR SUPPLY OF ELECTRIC POLES</div></div>
+    </div>
+    <div class="gold"></div>
+    <div class="body">
+      <div class="meta">
+        <div><div class="k">Quotation No.</div><div class="v">${esc(q.quotationNo)}</div></div>
+        <div><div class="k">Date</div><div class="v">${fmtDate(q.date)}</div></div>
+        <div><div class="k">Valid Until</div><div class="v">${q.validUntil?fmtDate(q.validUntil):'—'}</div></div>
+        <div><div class="k">Place of Supply</div><div class="v">Karnataka (29)</div></div>
+      </div>
+      <div class="card"><div class="h">Quotation For</div>
+        <div class="pname">${esc(q.customer)}</div>
+        ${q.address?`<div class="psub">${esc(q.address)}</div>`:''}${q.phone?`<div class="psub">Ph: ${esc(q.phone)}</div>`:''}
+      </div>
+      <table><thead><tr><th style="width:34px">#</th><th>Description</th><th style="width:56px">HSN</th><th style="width:60px;text-align:center">Qty</th><th style="width:44px">Unit</th><th style="width:100px;text-align:right">Rate (₹)</th><th style="width:120px;text-align:right">Amount (₹)</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="tot"><div class="totbox">${totRows}</div></div>
+      <div class="words"><b>Amount in words:</b> ${numToWords(t.grand)}</div>
+      <div class="terms"><b>Terms &amp; Conditions</b><br>
+        1. ${gstTxt}. ${trTxt}.<br>
+        2. Poles conform to IS 1678 (PSC / PSCC).<br>
+        ${q.paymentTerms?('3. Payment terms: '+esc(q.paymentTerms)+'.<br>'):''}
+        ${q.notes?('Note: '+esc(q.notes)+'<br>'):''}
+        Prices valid up to the date shown above. Subject to Kunigal jurisdiction. E. &amp; O.E.</div>
+      <div class="foot"><div class="sign"><div style="height:44px"></div><div class="co">For BKN ELECTRIC POLES</div><div class="psub">Authorised Signatory</div></div></div>
+    </div>
+    <div class="fbar">This is a computer-generated quotation.</div>
+  </div>
+  <div class="no-print" style="text-align:center;padding:16px;display:flex;gap:12px;justify-content:center">
+    <button onclick="window.print()" style="padding:11px 30px;background:#0f2c4c;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">&#128424; Print / Save as PDF</button>
+    <button onclick="window.close()" style="padding:11px 22px;background:#f1f5f9;color:#374151;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;cursor:pointer">Close</button>
+  </div></body></html>`;
+  const win=window.open('','_blank'); if(win){ win.document.write(html); win.document.close(); } else alert('Please allow pop-ups to print.');
+}
+
 function renderGST(){
-  document.getElementById('topbar-action').innerHTML = `<button class="btn-primary" onclick="openGSTModal()">+ New invoice</button>`;
+  document.getElementById('topbar-action').innerHTML = polesGstTab==='quotations'
+    ? `<button class="btn-primary" onclick="openQuotationModal()">+ New quotation</button>`
+    : `<button class="btn-primary" onclick="openGSTModal()">+ New invoice</button>`;
+  const tabBar = `<div class="tab-bar" style="margin-bottom:12px">
+      <button class="tab ${polesGstTab==='invoices'?'active':''}" onclick="polesGstTab='invoices';renderGST()">Invoices</button>
+      <button class="tab ${polesGstTab==='quotations'?'active':''}" onclick="polesGstTab='quotations';renderGST()">Quotations</button>
+    </div>`;
+  if(polesGstTab==='quotations'){ document.getElementById('content').innerHTML = tabBar + '<div id="gst-tab-content"></div>'; renderQuotationTab(); return; }
   const year     = gstFinYear(today());
   const invoices = [...(cache.gst_invoices||[])].sort((a,b)=>(a.invoiceDate||'').localeCompare(b.invoiceDate||''));
   const allYears = [...new Set(invoices.map(i=>gstFinYear(i.invoiceDate)).filter(Boolean))];
@@ -1016,7 +1236,7 @@ function renderGST(){
     return `<option value="${ym}" ${selMonth===ym?'selected':''}>${new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'})} (${monthCounts[ym]})</option>`;}).join('');
   const yearOpts = [...new Set([year,...allYears])].map(y=>`<option value="${y}" ${gstInvoiceFilter===y?'selected':''}>${y}</option>`).join('');
   const tot = k => filtered.reduce((s,i)=>s+(Number(i[k])||0),0);
-  document.getElementById('content').innerHTML = `
+  document.getElementById('content').innerHTML = tabBar + `
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
       <select style="width:auto;font-size:13px;padding:5px 10px" onchange="gstInvoiceFilter=this.value;gstFromDate='';gstToDate='';renderGST()">${yearOpts}</select>
       <select style="width:auto;font-size:13px;padding:5px 10px;font-weight:600" onchange="gstSelectMonth(this.value)">${monthOpts}</select>
