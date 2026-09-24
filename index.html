@@ -1464,49 +1464,59 @@ function dashMonthlySeries(){
 }
 function dashMonthLabel(ym){ const [y,m]=ym.split('-').map(Number); return new Date(y,m-1,1).toLocaleString('en-IN',{month:'short'}); }
 
-function openTodaySalesModal(){
+function openDashDetail(which){
   const orders=cache.orders, prod=cache.production, tm=today().slice(0,7);
-  const todayOrders=orders.filter(o=>o.orderDate===today());
-  const salesToday=todayOrders.reduce((s,o)=>s+(Number(o.total)||0),0);
-  const advToday  =todayOrders.reduce((s,o)=>s+(Number(o.advance)||0),0);
-  const balToday  =todayOrders.reduce((s,o)=>s+(Number(o.balance)||0),0);
-  const pipesToday=todayOrders.reduce((s,o)=>s+PIPE_TYPES.reduce((ss,t)=>ss+(Number(o.pipes&&o.pipes[t])||0),0),0);
-  const delByType={}, prodByType={}; PIPE_TYPES.forEach(t=>{delByType[t]=0;prodByType[t]=0;});
-  orders.filter(o=>o.status==='delivered' && (o.deliveryDate||o.orderDate||'').startsWith(tm))
-        .forEach(o=>PIPE_TYPES.forEach(t=>delByType[t]+=(Number(o.pipes&&o.pipes[t])||0)));
-  prod.filter(p=>(p.date||'').startsWith(tm))
-        .forEach(p=>PIPE_TYPES.forEach(t=>prodByType[t]+=(Number(p.pipes&&p.pipes[t])||0)));
-  const delTot =PIPE_TYPES.reduce((s,t)=>s+delByType[t],0);
-  const prodTot=PIPE_TYPES.reduce((s,t)=>s+prodByType[t],0);
   const monLabel=new Date(Number(tm.slice(0,4)),Number(tm.slice(5,7))-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'});
   const grid=obj=>PIPE_TYPES.map(t=>`<div style="display:flex;justify-content:space-between;padding:6px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:12.5px${obj[t]>0?'':';opacity:.45'}"><span>${esc(t)}</span><strong>${obj[t]}</strong></div>`).join('');
-  modal(`<div class="modal" style="max-width:660px;width:96vw">
-    <div class="modal-header"><h3 style="font-size:15px;font-weight:600">Today's sales · ${fmtDate(today())}</h3><button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button></div>
-    <div class="modal-body" style="max-height:76vh;overflow-y:auto">
+  const pipeBadges=o=>Object.entries(o.pipes||{}).filter(([,v])=>v>0).map(([k,v])=>`<span class="badge badge-gray">${v}× ${k}</span>`).join(' ')||'—';
+  let title='', bodyHTML='';
+  if(which==='sales'){
+    const todayOrders=orders.filter(o=>o.orderDate===today());
+    const salesToday=todayOrders.reduce((s,o)=>s+(Number(o.total)||0),0);
+    const advToday=todayOrders.reduce((s,o)=>s+(Number(o.advance)||0),0);
+    const balToday=todayOrders.reduce((s,o)=>s+(Number(o.balance)||0),0);
+    const pipesToday=todayOrders.reduce((s,o)=>s+PIPE_TYPES.reduce((ss,t)=>ss+(Number(o.pipes&&o.pipes[t])||0),0),0);
+    title=`Today's sales · ${fmtDate(today())}`;
+    bodyHTML=`
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
         <div class="stat-card"><div class="stat-label">Sales today</div><div class="stat-value" style="color:var(--success)">₹${fmt(salesToday)}</div><div style="font-size:11px;color:var(--muted)">${todayOrders.length} order${todayOrders.length===1?'':'s'} · ${pipesToday} pipes</div></div>
         <div class="stat-card"><div class="stat-label">Advance collected</div><div class="stat-value" style="font-size:17px">₹${fmt(advToday)}</div></div>
         <div class="stat-card"><div class="stat-label">Balance due</div><div class="stat-value" style="font-size:17px;color:${balToday>0?'var(--warning)':'var(--success)'}">₹${fmt(balToday)}</div></div>
       </div>
       <div style="font-weight:700;font-size:13px;margin-bottom:6px">Today's orders</div>
-      ${todayOrders.length? `<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table style="font-size:12.5px">
-        <thead><tr><th>Customer</th><th>Pipes</th><th style="text-align:right">Total</th><th style="text-align:right">Advance</th><th style="text-align:right">Balance</th><th>Status</th></tr></thead>
-        <tbody>${todayOrders.map(o=>`<tr>
-          <td style="font-weight:600">${esc(o.customer)}</td>
-          <td>${Object.entries(o.pipes||{}).filter(([,v])=>v>0).map(([k,v])=>`<span class="badge badge-gray">${v}× ${k}</span>`).join(' ')||'—'}</td>
-          <td style="text-align:right;font-weight:600">₹${fmt(o.total)}</td>
-          <td style="text-align:right">₹${fmt(o.advance)}</td>
-          <td style="text-align:right">${o.balance>0?'₹'+fmt(o.balance):'<span class="badge badge-green">Paid</span>'}</td>
-          <td><span class="badge ${o.status==='pending'?'badge-amber':o.status==='ready'?'badge-blue':'badge-green'}">${esc(o.status||'pending')}</span></td>
-        </tr>`).join('')}</tbody></table></div></div>` : `<div class="empty-state" style="padding:1.25rem">No sales entered today yet.</div>`}
-      <div style="font-weight:700;font-size:13px;margin:18px 0 6px">Delivered this month — ${monLabel} <span style="font-weight:400;color:var(--muted)">(${delTot} pipes total)</span></div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">${grid(delByType)}</div>
-      <div style="font-weight:700;font-size:13px;margin:18px 0 6px">Produced this month — ${monLabel} <span style="font-weight:400;color:var(--muted)">(${prodTot} pipes total)</span></div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">${grid(prodByType)}</div>
-    </div>
-    <div class="modal-footer"><button onclick="closeModal()">Close</button><button class="btn-primary" onclick="closeModal();goto('orders')">Go to Orders</button></div>
+      ${todayOrders.length? `<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table style="font-size:12.5px"><thead><tr><th>Customer</th><th>Pipes</th><th style="text-align:right">Total</th><th style="text-align:right">Advance</th><th style="text-align:right">Balance</th><th>Status</th></tr></thead><tbody>${todayOrders.map(o=>`<tr><td style="font-weight:600">${esc(o.customer)}</td><td>${pipeBadges(o)}</td><td style="text-align:right;font-weight:600">₹${fmt(o.total)}</td><td style="text-align:right">₹${fmt(o.advance)}</td><td style="text-align:right">${o.balance>0?'₹'+fmt(o.balance):'<span class="badge badge-green">Paid</span>'}</td><td><span class="badge ${o.status==='pending'?'badge-amber':o.status==='ready'?'badge-blue':'badge-green'}">${esc(o.status||'pending')}</span></td></tr>`).join('')}</tbody></table></div></div>` : `<div class="empty-state" style="padding:1.25rem">No sales entered today yet.</div>`}`;
+  } else if(which==='produced'){
+    const byType={}; PIPE_TYPES.forEach(t=>byType[t]=0);
+    const monthProd=prod.filter(p=>(p.date||'').startsWith(tm)).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    monthProd.forEach(p=>PIPE_TYPES.forEach(t=>byType[t]+=(Number(p.pipes&&p.pipes[t])||0)));
+    const tot=PIPE_TYPES.reduce((s,t)=>s+byType[t],0);
+    title=`Produced this month — ${monLabel}`;
+    bodyHTML=`
+      <div class="stat-card" style="margin-bottom:14px"><div class="stat-label">Total produced</div><div class="stat-value" style="color:var(--brand)">${fmt(tot)} pipes</div><div style="font-size:11px;color:var(--muted)">${monthProd.length} production log${monthProd.length===1?'':'s'}</div></div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px">By pipe type</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:16px">${grid(byType)}</div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px">Production log — this month</div>
+      ${monthProd.length? `<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table style="font-size:12.5px"><thead><tr><th>Date</th><th>Pipes</th><th style="text-align:right">Total</th></tr></thead><tbody>${monthProd.map(p=>{const tt=PIPE_TYPES.reduce((s,t)=>s+(Number(p.pipes&&p.pipes[t])||0),0);return `<tr><td style="white-space:nowrap">${fmtDate(p.date)}</td><td>${pipeBadges(p)}</td><td style="text-align:right;font-weight:600">${tt}</td></tr>`;}).join('')}</tbody></table></div></div>` : `<div class="empty-state" style="padding:1.25rem">No production this month.</div>`}`;
+  } else {
+    const byType={}; PIPE_TYPES.forEach(t=>byType[t]=0);
+    const delOrders=orders.filter(o=>o.status==='delivered' && (o.deliveryDate||o.orderDate||'').startsWith(tm)).sort((a,b)=>(b.deliveryDate||b.orderDate||'').localeCompare(a.deliveryDate||a.orderDate||''));
+    delOrders.forEach(o=>PIPE_TYPES.forEach(t=>byType[t]+=(Number(o.pipes&&o.pipes[t])||0)));
+    const tot=PIPE_TYPES.reduce((s,t)=>s+byType[t],0);
+    title=`Delivered this month — ${monLabel}`;
+    bodyHTML=`
+      <div class="stat-card" style="margin-bottom:14px"><div class="stat-label">Total delivered</div><div class="stat-value" style="color:var(--success)">${fmt(tot)} pipes</div><div style="font-size:11px;color:var(--muted)">${delOrders.length} order${delOrders.length===1?'':'s'}</div></div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px">By pipe type</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:16px">${grid(byType)}</div>
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px">Delivered orders — this month</div>
+      ${delOrders.length? `<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table style="font-size:12.5px"><thead><tr><th>Date</th><th>Customer</th><th>Pipes</th><th style="text-align:right">Total</th></tr></thead><tbody>${delOrders.map(o=>{const tt=PIPE_TYPES.reduce((s,t)=>s+(Number(o.pipes&&o.pipes[t])||0),0);return `<tr><td style="white-space:nowrap">${fmtDate(o.deliveryDate||o.orderDate)}</td><td style="font-weight:600">${esc(o.customer)}</td><td>${pipeBadges(o)}</td><td style="text-align:right;font-weight:600">${tt}</td></tr>`;}).join('')}</tbody></table></div></div>` : `<div class="empty-state" style="padding:1.25rem">No deliveries this month.</div>`}`;
+  }
+  modal(`<div class="modal" style="max-width:660px;width:96vw">
+    <div class="modal-header"><h3 style="font-size:15px;font-weight:600">${title}</h3><button onclick="closeModal()" style="border:none;font-size:22px;background:none;cursor:pointer;color:#aaa;padding:0 4px">&times;</button></div>
+    <div class="modal-body" style="max-height:76vh;overflow-y:auto">${bodyHTML}</div>
+    <div class="modal-footer"><button onclick="closeModal()">Close</button></div>
   </div>`);
 }
+
 function renderDashboard() {
   const orders   = cache.orders;
   const prod     = cache.production;
@@ -1558,10 +1568,10 @@ function renderDashboard() {
       const matMeta=[...MAT_SINGLE, ...STEEL_WIRE_SIZES.map(sz=>({id:sz.id,label:'Wire '+sz.label}))];
       return `
       <div class="grid-4" style="margin-bottom:1rem">
-        <div class="metric" onclick="openTodaySalesModal()" style="cursor:pointer" title="Tap for today's sales details"><div class="metric-label">Sales today <i class="ti ti-chevron-right" style="font-size:11px;vertical-align:middle"></i></div><div class="metric-value" style="font-size:17px;color:#3b8a2a">₹${fmt(salesToday)}</div></div>
+        <div class="metric" onclick="openDashDetail('sales')" style="cursor:pointer" title="Tap for today's sales details"><div class="metric-label">Sales today <i class="ti ti-chevron-right" style="font-size:11px;vertical-align:middle"></i></div><div class="metric-value" style="font-size:17px;color:#3b8a2a">₹${fmt(salesToday)}</div></div>
         <div class="metric"><div class="metric-label">Orders today</div><div class="metric-value">${todayOrders.length}</div></div>
-        <div class="metric"><div class="metric-label">Produced this month</div><div class="metric-value">${fmt(prodThisMonth)}</div></div>
-        <div class="metric"><div class="metric-label">Delivered this month</div><div class="metric-value">${deliveredThisMonth}</div></div>
+        <div class="metric" onclick="openDashDetail('produced')" style="cursor:pointer" title="Tap for produced-this-month details"><div class="metric-label">Produced this month <i class="ti ti-chevron-right" style="font-size:11px;vertical-align:middle"></i></div><div class="metric-value">${fmt(prodThisMonth)}</div></div>
+        <div class="metric" onclick="openDashDetail('delivered')" style="cursor:pointer" title="Tap for delivered-this-month details"><div class="metric-label">Delivered this month <i class="ti ti-chevron-right" style="font-size:11px;vertical-align:middle"></i></div><div class="metric-value">${deliveredThisMonth}</div></div>
       </div>
       <div class="grid-2">
         <div class="card"><div class="card-title">Monthly production (pipes)</div>${dashBars(S.months.map(m=>({l:dashMonthLabel(m),v:S.prodBy[m]})),{color:'#1a6bc4'})}</div>
