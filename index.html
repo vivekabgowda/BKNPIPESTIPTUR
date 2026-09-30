@@ -712,6 +712,31 @@ function esc(s)     { return String(s==null?'':s).replace(/&/g,'&amp;').replace(
 document.addEventListener('keydown', e => { if(e.key === 'Escape') closeModal(); });
 
 // ── EXPORT ────────────────────────────────────────────────────────────────────
+// Full data export / backup — dumps every collection + meta doc to one JSON file.
+function exportAllData() {
+  const snap = {
+    _app: 'BKN RCC SPUN PIPES (Tiptur)', _type: 'full-data-export',
+    _exportedAt: new Date().toISOString(), _date: today(),
+    orders: cache.orders||[], production: cache.production||[], attendance: cache.attendance||[],
+    advances: cache.advances||[], materials: cache.materials||[], expenses: cache.expenses||[],
+    labour_karchi: cache.labour_karchi||[], salary_payments: cache.salary_payments||[],
+    shop_expenses: cache.shop_expenses||[], shop_payments: cache.shop_payments||[],
+    gst_invoices: cache.gst_invoices||[], quotations: cache.quotations||[],
+    production_targets: cache.production_targets||[], dispatch_assign: cache.dispatch_assign||{},
+    meta: {
+      pipe_opening: cache.pipe_opening||{}, mat_opening: cache.mat_opening||{},
+      pipe_rates: cache.pipe_rates||{}, consume_rates: cache.consume_rates||{}, piecerate: cache.piecerate||{},
+      pipe_stock_thresholds: cache.pipe_stock_thresholds||{}, mat_stock_thresholds: cache.mat_stock_thresholds||{},
+      gst_profile: cache.gst_profile||{}
+    }
+  };
+  const counts = ['orders','production','attendance','advances','materials','expenses','gst_invoices','quotations'].map(k=>`${(cache[k]||[]).length} ${k}`).join(', ');
+  const blob = new Blob([JSON.stringify(snap,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='bkn_pipes_backup_'+today()+'.json'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1500);
+  alert('Backup downloaded ('+counts+'). Keep it safe — and you can share this file for analysis.');
+}
 function downloadCSV(filename, headers, rows) {
   const q = v => '"' + String(v==null?'':v).replace(/"/g,'""') + '"';
   const lines = [headers.map(q).join(','), ...rows.map(r=>r.map(q).join(','))];
@@ -5355,6 +5380,11 @@ function renderSettings() {
     </tr>`).join('');
 
   document.getElementById('content').innerHTML = `
+    <div class="card" style="margin-bottom:0.75rem">
+      <div style="font-weight:600;font-size:14px;margin-bottom:6px"><i class="ti ti-database-export"></i> Backup / Export all data</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Downloads a single file with all your orders, production, materials, expenses, staff, GST invoices, quotations and settings. Keep it as a safety backup — and you can share it for analysis.</div>
+      <button class="btn-primary" onclick="exportAllData()"><i class="ti ti-download"></i> Download full backup (.json)</button>
+    </div>
     <div class="card" style="padding:0;overflow:hidden;margin-bottom:0.75rem">
       <div style="padding:0.875rem 1.25rem;font-size:14px;font-weight:600;border-bottom:1px solid var(--border)">
         Pipe selling rates (₹ per pipe)
