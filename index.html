@@ -6672,6 +6672,8 @@ function shareOrder(orderId) {
     `Address: ${o.address||'—'}${o.km?' (~'+o.km+' km)':''}`,
     `Pipes: ${pipeList||'—'}`,
     ...payLines,
+    (Number(o.balance)||0)>0 ? `⚠️ *Kindly clear the balance of ₹${fmt(Number(o.balance)||0)} before dispatch from the factory.*` : '',
+    `_Note: Goods will be dispatched only after full payment is cleared at the factory._`,
     o.deliveryDate ? `Delivery: ${fmtDate(o.deliveryDate)}` : '',
     o.notes ? `Note: ${o.notes}` : '',
     ``,
